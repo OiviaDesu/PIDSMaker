@@ -49,6 +49,13 @@ This file records every significant command used to set up and run PIDSMaker (Or
   - `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm` → JobID 6356979 (PENDING Priority)
   - GPU telemetry logged to `${NODE_WORK}/gpu_stats.log` and packaged to `~/slurm-logs/orthus_cadets_e3_ctn_<JOBID>.tar.gz`
 
+- **OPTIMIZED RUN** with tuned configuration (October 21, 2025)
+  - `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm` → JobID 6358565 (PENDING Priority)
+  - Using `orthrus_tuned.yml` config with optimizations based on job 6357922 analysis
+  - Key changes: emb_dim 32 (was 128), node_hid_dim 32 (was 128), batch_size 1024 (was 256), best_val_loss threshold
+  - Expected: 5-8 min training (was 45 min), 20-25 TP detection (was 0), 0.4-0.5 precision (was 0.0)
+  - Resources: 1 GPU, 4 CPU, 64G RAM, 2h limit
+
 ## Container fix
 - Observed GPU run 6356979 failed inside container: ModuleNotFoundError: psycopg2
 - Patched `containers/pidsmaker_cuda117.def` to include `psycopg2-binary==2.9.9`
