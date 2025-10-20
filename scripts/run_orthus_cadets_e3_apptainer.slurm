@@ -33,10 +33,9 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-# Use node-local PostgreSQL to avoid /fred inode usage
-PG_BIN="/home/dunguyen/.conda/envs/pg17/bin"
+# Setup paths - using node-local PostgreSQL from conda environment
+PG_BIN="/fred/oz396/dunguyen/.conda/envs/pg17/bin"
 SRC_PGDATA="/fred/oz396/dunguyen/pg/data"
-# Pick a writable node-local base dir
 NODE_BASE="${SLURM_TMPDIR:-${TMPDIR:-/tmp}}"
 NODE_WORK="${NODE_BASE}/pids_run_${SLURM_JOB_ID}"
 NODE_PGDATA="${NODE_WORK}/pgdata"
@@ -52,13 +51,22 @@ echo "[$(date)] Syncing PostgreSQL data to node-local storage: ${NODE_PGDATA}"
 rsync -a --delete "${SRC_PGDATA}/" "${NODE_PGDATA}/"
 
 echo "[$(date)] Starting node-local PostgreSQL on port 55432..."
-"${PG_BIN}/pg_ctl" -D "${NODE_PGDATA}" -l "${NODE_PGLOG}" -o "-p 55432" start || true
+"${PG_BIN}/pg_ctl" -D "${NODE_PGDATA}" -l "${NODE_PGLOG}" -o "-p 55432" start
 
-# Wait until node-local Postgres is ready to accept connections (max ~180s)
+# Wait until Postgres is ready to accept connections (max ~180s)
+echo "[$(date)] Waiting for PostgreSQL to become ready..."
 for i in $(seq 1 180); do
-  "${PG_BIN}/pg_isready" -h 127.0.0.1 -p 55432 -U postgres && break || true
-  [ $i -eq 1 ] || echo "[$(date)] Waiting for node-local PostgreSQL... ($i)"
+  if "${PG_BIN}/pg_isready" -h 127.0.0.1 -p 55432 -U postgres >/dev/null 2>&1; then
+    echo "[$(date)] PostgreSQL is ready!"
+    break
+  fi
+  [ $i -eq 1 ] || echo "[$(date)] Waiting for PostgreSQL... ($i)"
   sleep 1
+  if [ $i -eq 180 ]; then
+    echo "[$(date)] ERROR: PostgreSQL failed to start after 180 seconds"
+    tail -100 "${NODE_PGLOG}"
+    exit 1
+  fi
 done
 
 module -q load apptainer
@@ -69,6 +77,7 @@ echo "[$(date)] Using image ${IMG}"
 export APPTAINER_CACHEDIR="/fred/oz396/dunguyen/.apptainer/cache"
 export APPTAINER_TMPDIR="/fred/oz396/dunguyen/.apptainer/tmp"
 mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
+echo "[$(date)] Using image ${IMG}"
 which apptainer || true
 apptainer --version || true
 ls -l "${IMG}" || true
@@ -115,7 +124,10 @@ apptainer exec --nv \
     --wandb --project \"${WANDB_PROJECT:-pidsmaker-orthus}\" \
     2>&1 | tee \"${NODE_WORK}/orthus_cadets_e3_ctn_run_${SLURM_JOB_ID}.log\""
 
+echo "[$(date)] Stopping PostgreSQL..."
+"${PG_BIN}/pg_ctl" -D "${NODE_PGDATA}" stop -m fast || true
+
 echo "[$(date)] Packaging artifacts to home..."
-tar -C "${NODE_WORK}" -czf "/home/dunguyen/slurm-logs/orthus_cadets_e3_ctn_${SLURM_JOB_ID}.tar.gz" artifacts postgres.log wandb "orthus_cadets_e3_ctn_run_${SLURM_JOB_ID}.log" || true
+tar -C "${NODE_WORK}" -czf "/home/dunguyen/slurm-logs/orthus_cadets_e3_ctn_${SLURM_JOB_ID}.tar.gz" artifacts postgres.log wandb "orthus_cadets_e3_ctn_run_${SLURM_JOB_ID}.log" gpu_stats.log || true
 
 echo "[$(date)] Container job finished."

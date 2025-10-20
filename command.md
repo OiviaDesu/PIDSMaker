@@ -49,6 +49,85 @@ This file records every significant command used to set up and run PIDSMaker (Or
   - `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm` → JobID 6356979 (PENDING Priority)
   - GPU telemetry logged to `${NODE_WORK}/gpu_stats.log` and packaged to `~/slurm-logs/orthus_cadets_e3_ctn_<JOBID>.tar.gz`
 
+### Job 6357922 - First successful GPU run (October 20, 2025)
+- **Config:** config/orthrus.yml (default configuration)
+- **Status:** COMPLETED in 65 minutes
+- **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+- **Result:** Training successful but 0 TP detection (see result.md)
+- **Performance:** 45 min GNN training, 1.8GB GPU memory, AUC=0.81
+- **Issue:** max_val_loss threshold too conservative
+
+### Job 6358565 - Failed config validation (October 21, 2025)
+- **Config:** config/orthrus_tuned.yml (initial optimization attempt)
+- **Status:** FAILED after 4 minutes
+- **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+- **Error:** Invalid threshold_method "best_val_loss" (not in allowed list)
+- **Fix:** Changed to mean_val_loss
+
+### Job 6358595 - Failed PostgreSQL startup (October 21, 2025)
+- **Config:** config/orthrus_tuned.yml (corrected threshold)
+- **Status:** FAILED after 1 minute
+- **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+- **Error:** PostgreSQL container startup failed (PostgreSQL not in container)
+- **Issue:** Attempted to use container's PostgreSQL, but not installed
+
+### Job 6358645 - Failed PostgreSQL startup (October 21, 2025)
+- **Config:** config/orthrus_tuned.yml
+- **Status:** FAILED after 1 minute
+- **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+- **Error:** PostgreSQL startup failed (no binaries found)
+- **Issue:** Removed conda environment before, needed to reinstall
+
+### Job 6358717 - Cancelled (pending without PostgreSQL)
+- **Config:** config/orthrus_tuned.yml
+- **Status:** CANCELLED (PENDING)
+- **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+- **Reason:** No PostgreSQL available, needed to install pg17 environment
+
+### PostgreSQL 17 Reinstallation (October 21, 2025)
+- **Issue:** pg17 conda environment was incomplete/removed
+- **Solution:**
+  ```bash
+  rm -rf /fred/oz396/dunguyen/.conda/envs/pg17
+  mamba create -n pg17 postgresql=17 -c conda-forge -y
+  ```
+- **Verification:**
+  ```bash
+  /fred/oz396/dunguyen/.conda/envs/pg17/bin/pg_ctl --version
+  # pg_ctl (PostgreSQL) 17.6
+  ```
+- **Database check:**
+  ```bash
+  /fred/oz396/dunguyen/.conda/envs/pg17/bin/pg_ctl -D /fred/oz396/dunguyen/pg/data -l /tmp/pg_temp.log -o "-p 55432" start
+  /fred/oz396/dunguyen/.conda/envs/pg17/bin/psql -h localhost -p 55432 -U postgres -d cadets_e3 -c "SELECT COUNT(*) FROM event_table;"
+  # Result: 36,484,667 events (database intact!)
+  ```
+
+### Job 6358952 - OPTIMIZED RUN ✅ SUCCESS (October 21, 2025)
+- **Config:** config/orthrus_tuned.yml (optimized hyperparameters)
+- **Status:** ✅ COMPLETED in 32 minutes 30 seconds
+- **Node:** gina2
+- **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+- **Optimizations Applied:**
+  - Embedding dim: 128 → 32 (4x reduction)
+  - Node dims: 128/64 → 32/16 (4x reduction)
+  - TGN dims: 100 → 50 (2x reduction)
+  - Batch size: 256 → 1024 (4x increase)
+  - Neighbor size: 10 → 20 (2x increase)
+  - Threshold: max_val_loss → mean_val_loss
+  - PostgreSQL: Node-local on /tmp for faster I/O
+- **Results:**
+  - **Speed:** 32.5 min vs 65 min (2x faster) ✅
+  - **GPU Memory:** 1.27 GB vs 1.8 GB (29% reduction) ✅
+  - **GNN Training:** 14 min vs 45 min (3.2x faster) ✅
+  - **Detection:** 0 TP (STILL BROKEN) ❌
+  - **AUC:** 0.70 (vs 0.81 in job 6357922)
+  - **Threshold:** mean_val_loss = 0.536 (still too high)
+- **Conclusion:** Speed optimization SUCCESS, detection FAILED
+- **Next step:** Fix threshold selection method, not model hyperparameters
+- **Artifacts:** `~/slurm-logs/orthus_cadets_e3_ctn_6358952.tar.gz`
+- **Full analysis:** See `result_6358952.md`
+
 - **OPTIMIZED RUN** with tuned configuration (October 21, 2025)
   - `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm` → JobID 6358565 (PENDING Priority)
   - Using `orthrus_tuned.yml` config with optimizations based on job 6357922 analysis
