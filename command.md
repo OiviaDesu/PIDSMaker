@@ -128,6 +128,26 @@ This file records every significant command used to set up and run PIDSMaker (Or
 - **Artifacts:** `~/slurm-logs/orthus_cadets_e3_ctn_6358952.tar.gz`
 - **Full analysis:** See `result_6358952.md`
 
+### Job 6359088 - THRESHOLD FIX: nodlink (90th percentile) 🎯 (October 21, 2025)
+- **Config:** config/orthrus_tuned.yml (nodlink threshold method)
+- **Status:** PENDING
+- **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+- **Critical Fix Applied:**
+  - Threshold: mean_val_loss → **nodlink** (90th percentile)
+  - Rationale: mean=0.536 too high; most malicious nodes have loss <0.5
+  - nodlink uses 90th percentile (~0.4-0.5 range) for better anomaly detection
+- **Expected Results:**
+  - **Speed:** ~14 min training (ACHIEVED in 6358952) ✅
+  - **GPU Memory:** ~1.27 GB (ACHIEVED in 6358952) ✅
+  - **Detection:** Target 20-25 TP (fixing threshold bottleneck)
+  - **Precision:** Target 0.4-0.5 (matching paper baseline)
+  - **Recall:** Target 0.3-0.4 (matching paper baseline)
+- **Why nodlink?**
+  - Uses 90th percentile instead of mean → more selective
+  - Proven method from NodLink paper
+  - Should catch high-loss outlier nodes (anomalies)
+  - Alternative hardcoded thresholds: threatrace=1.5 (too high), flash=0.53 (similar to mean)
+
 - **OPTIMIZED RUN** with tuned configuration (October 21, 2025)
   - `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm` → JobID 6358565 (PENDING Priority)
   - Using `orthrus_tuned.yml` config with optimizations based on job 6357922 analysis
