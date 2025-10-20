@@ -46,9 +46,9 @@ detection:
     intra_graph_batching:
       used_methods: edges, tgn_last_neighbor
       edges:
-        intra_graph_batch_size: 1024
+        intra_graph_batch_size: 256  # reduced to lower RAM usage during batching
       tgn_last_neighbor:
-        tgn_neighbor_size: 20
+        tgn_neighbor_size: 10  # reduced neighbor count to lower RAM pressure
         tgn_neighbor_n_hop: 1
         fix_buggy_orthrus_TGN: False
         fix_tgn_neighbor_loader: False
