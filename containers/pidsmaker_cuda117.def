@@ -1,0 +1,80 @@
+Bootstrap: docker
+From: nvidia/cuda:11.7.1-cudnn8-runtime-ubuntu22.04
+
+%labels
+    Author dunguyen
+    Description "PIDSMaker with PyTorch 1.13.1 + CUDA 11.7 + PyG 2.5.3"
+
+%environment
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=UTC
+    export PYTHONUNBUFFERED=1
+    export PIP_NO_CACHE_DIR=1
+    export PATH=/opt/conda/bin:$PATH
+    export NLTK_DATA=/usr/local/share/nltk_data
+
+%post
+    set -ex
+    apt-get update && apt-get install -y --no-install-recommends \
+        git graphviz ca-certificates curl wget pkg-config \
+        openjdk-8-jdk maven \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Install Python 3.10 and pip
+    apt-get update && apt-get install -y --no-install-recommends \
+        python3.10 python3.10-venv python3.10-distutils \
+        && rm -rf /var/lib/apt/lists/*
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python
+
+    # Python deps
+    python -m pip install --upgrade pip setuptools wheel
+    python -m pip install \
+        scikit-learn==1.2.0 networkx==2.8.7 xxhash==3.2.0 \
+        graphviz==0.20.1 psutil scipy==1.10.1 matplotlib==3.8.4 \
+        wandb==0.16.6 chardet==5.2.0 nltk==3.8.1 igraph==0.11.5 \
+        cairocffi==1.7.0 wget==3.2 psycopg2-binary==2.9.9
+
+    # Install PyTorch 1.13.1 CUDA 11.7 from official channels
+    python -m pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117
+
+    # PyTorch Geometric matching torch 1.13.1 + cu117
+    python -m pip install torch_geometric==2.5.3 --no-cache-dir
+    python -m pip install --no-cache-dir \
+        pyg_lib==0.2.0 torch_scatter==2.1.1 torch_sparse==0.6.17 \
+        torch_cluster==1.6.1 torch_spline_conv==1.2.2 \
+        -f https://data.pyg.org/whl/torch-1.13.0+cu117.html
+
+    # Remaining deps
+    python -m pip install gensim==4.3.1 pytz==2024.1 pandas==2.2.2 yacs==0.1.8
+    python -m pip install gdown==5.2.0
+    python -m pip install pytest==8.3.5 pytest-cov==6.1.1 pre-commit==4.2.0 setuptools==61.0 mkdocs-material==9.6.12 mkdocs-glightbox==0.4.0
+
+    # Pin numpy/scipy as in Dockerfile
+    python -m pip uninstall -y scipy || true
+    python -m pip install scipy==1.10.1
+    python -m pip uninstall -y numpy || true
+    python -m pip install numpy==1.26.4
+
+    # Pre-fetch NLTK data (punkt) into system location (no network on compute nodes)
+    python - <<'PY'
+import nltk
+import os
+dst = os.environ.get('NLTK_DATA', '/usr/local/share/nltk_data')
+os.makedirs(dst, exist_ok=True)
+nltk.download('punkt', download_dir=dst, quiet=True)
+print('Downloaded NLTK punkt to', dst)
+PY
+
+    mkdir -p /opt/PIDSMaker
+
+%files
+    . /opt/PIDSMaker
+
+%post
+    # Install project in editable mode
+    cd /opt/PIDSMaker
+    python -m pip install -e .
+
+%runscript
+    exec "$@"

@@ -30,10 +30,10 @@ ROOT_GROUND_TRUTH_DIR = os.path.join(ROOT_PROJECT_PATH, "Ground_Truth/")
 
 
 DATABASE_DEFAULT_CONFIG = {
-    "host": "postgres",  # Host machine where the db is located
+    "host": "127.0.0.1",  # Host machine where the db is located (node-local default)
     "user": "postgres",  # Database user
     "password": "postgres",  # The password to the database user
-    "port": "5432",  # The port number for Postgres
+    "port": "55432",  # The port number for node-local Postgres
 }
 # ================================================================================
 

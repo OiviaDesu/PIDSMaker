@@ -260,8 +260,18 @@ if __name__ == "__main__":
     else:
         project = "PIDSMaker"
 
+    # Respect WANDB_MODE when args.wandb is provided to allow offline logging on clusters
+    mode_env = os.getenv("WANDB_MODE", "").lower()
+    if args.wandb and args.tuning_mode == "none":
+        if mode_env in {"offline", "online", "disabled"}:
+            wandb_mode = mode_env
+        else:
+            wandb_mode = "online"
+    else:
+        wandb_mode = "disabled"
+
     wandb.init(
-        mode="online" if (args.wandb and args.tuning_mode == "none") else "disabled",
+        mode=wandb_mode,
         project=project,
         name=exp_name,
         tags=tags,

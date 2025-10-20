@@ -1,0 +1,146 @@
+# Commands log
+
+This file records every significant command used to set up and run PIDSMaker (Orthrus) on OzSTAR. Timestamps are approximate; substitute your own user/project paths where applicable.
+
+## Repository and environment
+
+- Clone repository
+  - `git clone https://github.com/ubc-provenance/PIDSMaker.git`
+  - `cd PIDSMaker`
+
+- Create directories on /fred for caches, logs, artifacts, and Postgres data
+  - `export FRED_BASE=/fred/oz396/dunguyen`
+  - `mkdir -p $FRED_BASE/{containers,pids_logs,pids_artifacts,.apptainer/{cache,tmp},pg/{data,logs}}`
+
+## PostgreSQL 17 setup and dataset restore
+
+- Initialize PG17 cluster
+  - `~/.conda/envs/pg17/bin/initdb -D $FRED_BASE/pg/data`
+
+- Start PG17 server (login node or inside job)
+  - `~/.conda/envs/pg17/bin/pg_ctl -D $FRED_BASE/pg/data -l $FRED_BASE/pg/logs/postgres.log start`
+
+- Create database and restore CADETS_E3
+  - `createdb -h 127.0.0.1 -U postgres cadets_e3`
+  - `pg_restore -h 127.0.0.1 -U postgres -d cadets_e3 /path/to/cadets_e3.dump`
+
+- Stop PG17 server (optional when done on login)
+  - `~/.conda/envs/pg17/bin/pg_ctl -D $FRED_BASE/pg/data stop`
+
+## Container build (one-time)
+
+- Build Apptainer image with CUDA 11.7, Torch 1.13.1+cu117, PyG 2.5.3
+  - `module load apptainer`
+  - `apptainer build $FRED_BASE/containers/pidsmaker_cuda117.sif containers/pidsmaker_cuda117.def`
+
+## GPU job submissions (containerized)
+
+- Milan/A100 partition submission
+  - `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+
+- Skylake GPU partition submission
+  - `sbatch scripts/run_orthus_cadets_e3_apptainer_skylake.slurm`
+
+- Latest: submitted single Milan GPU job
+  - `sbatch /home/dunguyen/git/PIDSMaker/scripts/run_orthus_cadets_e3_apptainer.slurm`
+  - JobID: 6351998 (state pending at submission time)
+
+- Tuned GPU submission to mirror paper resources (GPU mem ~4–6 GB, 4 CPU, 24G RAM, 2h limit) and added telemetry
+  - `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm` → JobID 6356979 (PENDING Priority)
+  - GPU telemetry logged to `${NODE_WORK}/gpu_stats.log` and packaged to `~/slurm-logs/orthus_cadets_e3_ctn_<JOBID>.tar.gz`
+
+## Container fix
+- Observed GPU run 6356979 failed inside container: ModuleNotFoundError: psycopg2
+- Patched `containers/pidsmaker_cuda117.def` to include `psycopg2-binary==2.9.9`
+- Rebuilt container on login node:
+  - `module load apptainer && apptainer build /fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif containers/pidsmaker_cuda117.def`
+- Resubmitted GPU job with updated image → JobID 6357087 (PENDING, PartitionDown)
+
+## Code and script fixes
+- Honored `WANDB_MODE` in `pidsmaker/main.py` so offline logging works on compute nodes
+- Defaulted DB to node-local in `pidsmaker/config/pipeline.py` (host=127.0.0.1, port=55432, user=postgres)
+- Removed unsupported CLI DB flags from GPU/Skylake scripts; rely on code defaults
+- Fixed model name typo in all scripts: `orthus` → `orthrus`
+
+## Recent GPU submissions and status
+- 6357146: COMPLETED quickly (wandb offline OK; argparse failed on `--database.*`)
+- 6357185: COMPLETED quickly (ValueError unknown model `orthus`)
+- 6357309: RUNNING (node-local PG OK, CUDA True, telemetry and heartbeats active)
+
+## W&B configuration and login
+
+- Created `.env` at repo root (ignored by Git) and set permissions 600
+  - Keys: `WANDB_API_KEY`, optional `WANDB_ENTITY`, `WANDB_PROJECT`, `WANDB_MODE`
+  - Verified login on login node using env key via Python: `wandb.login(key=...)`
+  - Default API entity detected: `oiviadesu-swinburne-university-of-technology`
+- Switched W&B to ONLINE mode in `.env` and set `WANDB_ENTITY` accordingly
+- Updated Slurm scripts to source `.env`; jobs attempted online logging
+- Observed failure: `wandb.init` timeout on compute node; reverted `.env` to OFFLINE for reliability
+
+## Node-local PostgreSQL and tmp space
+
+- Switched Slurm scripts to clone PGDATA to node-local and run PG on port 55432
+- Initial attempt with `/jobfs` failed: Permission denied
+- Fallback to `${SLURM_TMPDIR}` / `${TMPDIR}` / `/tmp`
+- Requested larger node-local tmp: added `#SBATCH --tmp=50G` to scripts
+
+## Recent submissions and checks
+
+- CPU job with node-local PG and W&B offline:
+  - `sbatch scripts/run_orthus_cadets_e3.slurm` → JobID 6356672 (failed: /jobfs perms)
+  - Fixed node-local base path to use TMPDIR
+  - `sbatch scripts/run_orthus_cadets_e3.slurm` → JobID 6356774 (failed: /tmp no space)
+  - Added `--tmp=50G`; resubmitted → JobID 6356875 (PENDING Priority)
+  - Fixed lmod PS1 with set -u; resubmitted → JobID 6356903 (RUNNING then FAILED due to W&B online timeout)
+  - Reverted W&B to offline in `.env` for next submission
+- Status checks
+  - `squeue -j <JOBID>` and `sacct -j <JOBID> --format=...`
+  - Inspected stdout/err under `~/slurm-logs/`
+
+## Monitoring and logs
+
+- Check queue for specific jobs
+  - `squeue -j <JOBID1>,<JOBID2>`
+
+- Check all your jobs
+  - `squeue -u $USER`
+
+- Tail container run logs (replace JOBID)
+  - `tail -f $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_run_<JOBID>.log`
+  - `tail -f $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_sk_run_<JOBID>.log`
+
+- Check Slurm stdout/err files
+  - `ls -l $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_<JOBID>.out $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_<JOBID>.err`
+  - `ls -l $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_sk_<JOBID>.out $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_sk_<JOBID>.err`
+
+## Optional diagnostics
+
+- Confirm Apptainer cache/tmp point to /fred
+  - `echo $APPTAINER_CACHEDIR; echo $APPTAINER_TMPDIR`
+
+- Verify container Torch/CUDA inside a node (expected True for CUDA)
+  - `apptainer exec --nv $FRED_BASE/containers/pidsmaker_cuda117.sif python -c "import torch; import torch_geometric as tg; print(torch.__version__, torch.version.cuda, torch.cuda.is_available(), tg.__version__)"`
+
+## Notes
+
+- Artifacts are written to `$FRED_BASE/pids_artifacts`.
+- Set WANDB_API_KEY in your environment if enabling Weights & Biases.
+- The Slurm scripts auto-start the PG17 server on the node if not already running.
+squeue -j 6351284,6351285
+sacct -j 6351284,6351285 --format=JobID,State,ExitCode,Start,End,Elapsed,AllocTRES%45,NodeList
+tail -f /home/dunguyen/slurm-logs/orthus_cadets_e3_ctn_%j.out
+]633;E;echo '# Diagnostics';ea2f0c7f-b515-4891-9c03-36a113b81c8d]633;C# Diagnostics
+squeue -j 6351284,6351285 -o "%i %T %P %R %M %l %D %C %m %b %N"
+sacct -j 6351284,6351285 --format=JobID,JobName%30,Partition,State,ExitCode,Start,End,Elapsed,AllocTRES%45,NodeList
+scontrol show job 6351284
+sed -n "1,200p" ~/slurm-logs/orthus_cadets_e3_ctn_6351284.out
+sed -n "1,200p" ~/slurm-logs/orthus_cadets_e3_ctn_6351284.err
+tail -n 200 /fred/oz396/dunguyen/pg/logs/postgres.log
+rm -f /fred/oz396/dunguyen/cadets_e5-001.dump
+du -sh /fred/oz396/dunguyen/* | sort -h | tail -n 20
+scancel 6351703 6351704
+sbatch -p skylake-gpu scripts/run_orthus_cadets_e3_apptainer_skylake.slurm
+squeue -j 6351715 -o "%i %T %P %R %M %l %D %C %m %b %N"
+sbatch -p skylake-gpu --mem=32G -c 4 --time=12:00:00 scripts/run_orthus_cadets_e3_apptainer_skylake.slurm
+squeue -j 6351715,6351807 -o "%i %T %P %R %M %l %D %C %m %b %N"
+scancel 6351715 6351807 6351818 6351819 6351820 6351824
