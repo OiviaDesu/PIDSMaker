@@ -109,14 +109,26 @@ detection:
     best_model_selection: best_adp
     used_method: node_evaluation
     node_evaluation:
-      threshold_method: mean_val_loss  # Changed from max_val_loss for better detection
+      threshold_method: nodlink  # Use 90th percentile for better anomaly detection
       use_dst_node_loss: True
       use_kmeans: True
       kmeans_top_K: 30
 
-# Expected improvements over job 6357922:
-# - Training time: ~45min -> ~5-8min (5-9x speedup from smaller model)
-# - GPU memory: ~1.8GB -> ~0.5-1.0GB (smaller model)
-# - Detection: 0 TP -> target 20-25 TP (better threshold calibration)
-# - Precision: 0.0 -> target 0.4-0.5 (matching paper)
-# - MCC: -0.00009 -> target 0.3-0.4 (matching paper)
+# OPTIMIZED CONFIG v2 - Job 6358952 analysis:
+# Speed optimization achieved (2x faster), now fixing detection with nodlink threshold
+# 
+# Previous attempts:
+# - Job 6357922: max_val_loss threshold → 0 TP (threshold too high)
+# - Job 6358952: mean_val_loss=0.536 → 0 TP (still too high, malicious nodes <0.5)
+# 
+# New approach (nodlink):
+# - Uses 90th percentile instead of mean (more selective)
+# - Should be ~0.4-0.5 range (catches high-loss outliers)
+# - Proven method from NodLink paper
+# 
+# Expected results:
+# - Training time: ~14min (ACHIEVED in 6358952) ✅
+# - GPU memory: ~1.27GB (ACHIEVED in 6358952) ✅
+# - Detection: Target 20-25 TP (fixing threshold method)
+# - Precision: Target 0.4-0.5 (matching paper)
+# - Recall: Target 0.3-0.4 (matching paper)
