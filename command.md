@@ -93,9 +93,23 @@ This file records every significant command used to set up and run PIDSMaker (Or
   - Added `--tmp=50G`; resubmitted → JobID 6356875 (PENDING Priority)
   - Fixed lmod PS1 with set -u; resubmitted → JobID 6356903 (RUNNING then FAILED due to W&B online timeout)
   - Reverted W&B to offline in `.env` for next submission
+
+- GPU jobs with progressive memory increases to resolve TGN OOM:
+  - JobID 6357475: OUT_OF_MEMORY after 8m48s (24G RAM) during TGN neighbor graph construction
+  - JobID 6357821: OUT_OF_MEMORY after 10m20s (48G RAM, peaked at 38.2GB) during TGN neighbor graph construction
+  - JobID 6357922: ✅ COMPLETED successfully with 96G RAM (started 23:21:23, finished ~00:25:00 on gina17)
+    - ✅ Successfully passed TGN neighbor graph construction at ~10-11 minutes
+    - ✅ GNN training completed: 11 epochs, ~45 minutes
+    - ✅ Evaluation completed: all epoch checkpoints tested
+    - GPU memory: 1.80 GB peak (training), 0.11 GB (inference)
+    - Total runtime: ~63-65 minutes
+    - Artifacts packaged to: ~/slurm-logs/orthus_cadets_e3_ctn_6357922.tar.gz
+    - W&B offline run: offline-run-20251020_122255-f5vstcxm
+
 - Status checks
   - `squeue -j <JOBID>` and `sacct -j <JOBID> --format=...`
   - Inspected stdout/err under `~/slurm-logs/`
+  - `tail -f ~/slurm-logs/orthus_cadets_e3_ctn_<JOBID>.out` for real-time monitoring
 
 ## Monitoring and logs
 
@@ -110,8 +124,26 @@ This file records every significant command used to set up and run PIDSMaker (Or
   - `tail -f $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_sk_run_<JOBID>.log`
 
 - Check Slurm stdout/err files
-  - `ls -l $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_<JOBID>.out $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_<JOBID>.err`
-  - `ls -l $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_sk_<JOBID>.out $FRED_BASE/pids_logs/orthus_cadets_e3_ctn_sk_<JOBID>.err`
+  - `ls -l ~/slurm-logs/orthus_cadets_e3_ctn_<JOBID>.out ~/slurm-logs/orthus_cadets_e3_ctn_<JOBID>.err`
+
+- Monitor job until completion
+  - `./scripts/monitor_job.sh <JOBID> [interval_seconds]`
+
+## Post-run: W&B sync and artifact extraction
+
+- Sync W&B offline run and extract artifacts (automated script)
+  - `./scripts/sync_wandb_run.sh <JOBID>`
+  - Example: `./scripts/sync_wandb_run.sh 6357922`
+
+- Manual W&B sync (if needed)
+  - `cd ~/slurm-logs && tar -xzf orthus_cadets_e3_ctn_<JOBID>.tar.gz`
+  - `wandb sync pids_run_<JOBID>/wandb/offline-run-*`
+
+- View results
+  - W&B dashboard: https://wandb.ai/<entity>/<project>
+  - Artifacts: ~/slurm-logs/pids_run_<JOBID>/artifacts/
+  - Logs: ~/slurm-logs/orthus_cadets_e3_ctn_<JOBID>.{out,err}
+  - GPU stats: ~/slurm-logs/gpu_stats_<JOBID>.log
 
 ## Optional diagnostics
 

@@ -183,9 +183,43 @@ Action: Free space under `/fred/<project>/<user>` before starting the job so PG 
 - Symptoms:
   - `[nltk_data] Error loading punkt: Temporary failure in name resolution`.
 - Likely cause:
-  - No outbound network; NLTK can’t fetch data at runtime.
-- Resolution / Notes:
-  - Non-blocking for current pipeline; if required, vendor the tokenizer or set `NLTK_DATA` to a prepopulated path in the image.
+  - No outbound network; NLTK can't fetch data at runtime.
+- Resolution:
+  - Added NLTK punkt pre-download to container `%post` section:
+    ```bash
+    python3 -m nltk.downloader -d /usr/local/share/nltk_data punkt
+    ```
+  - Set `NLTK_DATA=/usr/local/share/nltk_data` in container environment.
+  - Rebuilt container SIF; subsequent jobs have punkt available offline.
+
+## 20) TGN neighbor graph construction OOM failures (RESOLVED ✅)
+- Symptoms:
+  - Jobs consistently failed with `OUT_OF_MEMORY` during "Computing TGN last neighbor graphs..." stage.
+  - JobID 6357475: Failed at 8m48s with 24G RAM allocated.
+  - JobID 6357821: Failed at 10m20s with 48G RAM allocated (peaked at 38.2GB/48GB = 79.6%).
+- Likely cause:
+  - TGN neighbor graph construction for CADETS_E3 dataset (2.68M nodes) requires substantial memory.
+  - Even with reduced parameters (`tgn_neighbor_size: 10`, `intra_graph_batch_size: 256`), the memory footprint during graph construction exceeded available RAM.
+  - The batching process loads large neighbor subgraphs into memory before processing.
+- Resolution:
+  - Increased job memory allocation to `96G` in Slurm script.
+  - JobID 6357922: ✅ **Successfully completed entire pipeline with 96G RAM**.
+    - Passed TGN neighbor graph construction at ~10-11 minutes
+    - Completed 11 epochs of GNN training (~45 minutes)
+    - Finished evaluation of all epoch checkpoints
+    - Total runtime: ~63-65 minutes
+  - GPU memory usage: 1.80GB peak (training), 0.11GB (inference) - the issue was system RAM, not GPU memory.
+- Final metrics (Job 6357922):
+  - Node: gina17 (milan-gpu, A100)
+  - Runtime: 63-65 minutes total
+  - Peak GPU memory: 1.802 GB
+  - Peak system RAM: <96GB (job completed successfully)
+  - Training time: 45.2 minutes (2712s)
+  - Evaluation time: 9.7 minutes (582s)
+- Notes:
+  - For datasets with millions of nodes, TGN batching requires significantly more system RAM than the paper's reported GPU memory usage suggests.
+  - 96G was sufficient for CADETS_E3 (2.68M nodes) with reduced TGN parameters.
+  - Alternative approaches if RAM is limited: disable TGN batching entirely, use CPU-only nodes with higher RAM (128-256G), or reduce dataset size.
 
 ---
 
