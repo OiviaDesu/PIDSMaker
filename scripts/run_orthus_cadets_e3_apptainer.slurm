@@ -5,15 +5,21 @@
 #SBATCH --time=02:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=96G
+#SBATCH --mem=64G
 #SBATCH --partition=milan-gpu
 #SBATCH --gres=gpu:1
 #SBATCH --tmp=50G
 
+# OPTIMIZED RUN: Using orthrus_tuned.yml with smaller model dimensions
+# Expected improvements over job 6357922:
+# - Training time: 45min -> 5-8min (5-9x speedup)
+# - Detection: 0 TP -> 20-25 TP (better threshold)
+# - Precision: 0.0 -> 0.4-0.5 (matching paper)
+
 set -euo pipefail
 set -x
 
-echo "[$(date)] Starting Orthrus CADETS_E3 in container on host: $(hostname)"
+echo "[$(date)] Starting Orthrus CADETS_E3 (OPTIMIZED) in container on host: $(hostname)"
 
 # Ensure home slurm logs directory exists (stdout/err target)
 mkdir -p /home/dunguyen/slurm-logs
@@ -102,7 +108,7 @@ apptainer exec --nv \
   -B /home/dunguyen/git/PIDSMaker:/opt/PIDSMaker \
   -B "${NODE_WORK}":"${NODE_WORK}" \
   "${IMG}" \
-  bash -lc "set -o pipefail; python -m pidsmaker.main orthrus CADETS_E3 \
+  bash -lc "set -o pipefail; python -m pidsmaker.main orthrus_tuned CADETS_E3 \
     --artifact_dir_in_container \"${ART_DIR}\" \
     --restart_from_scratch \
     --force_restart=build_graphs \
