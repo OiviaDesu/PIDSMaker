@@ -117,7 +117,7 @@ apptainer exec --nv \
   -B /home/dunguyen/git/PIDSMaker:/opt/PIDSMaker \
   -B "${NODE_WORK}":"${NODE_WORK}" \
   "${IMG}" \
-  bash -lc "set -o pipefail; python -m pidsmaker.main orthrus_tuned CADETS_E3 \
+  bash -lc "set -o pipefail; python -m pidsmaker.main orthrus_aggressive CADETS_E3 \
     --artifact_dir_in_container \"${ART_DIR}\" \
     --restart_from_scratch \
     --force_restart=build_graphs \
