@@ -19,19 +19,25 @@ We provide three batching strategies that can be configured via dedicated [batch
 
 The batch size plays a key role in determining the trade-off between memory usage, speed, and learning effectiveness. Selecting an appropriate batch size requires careful consideration of the graph’s scale, the temporal dynamics, and the available hardware resources.
 
-**Large Batches**
+**Large batches**
 
-- ✅ Enhance training speed through better GPU parallelization  
-- ✅ Capture events over longer time periods  
-- ❌ Increase GPU memory usage
-- ❌ May cause high node in-degree, leading to over-squashing (loss of neighbor information)
+Advantages:
+- Enhance training speed through better GPU parallelization
+- Capture events over longer time periods
 
-**Small Batches**
+Trade-offs:
+- Increase GPU memory usage
+- May cause high node in-degree, leading to over-squashing (loss of neighbor information)
 
-- ✅ Reduce GPU memory consumption  
-- ✅ Enable fine-grained neighborhood aggregation  
-- ❌ Extend training time  
-- ❌ Risk missing graph patterns spanning longer time ranges if temporal features are not captured
+**Small batches**
+
+Advantages:
+- Reduce GPU memory consumption
+- Enable fine-grained neighborhood aggregation
+
+Trade-offs:
+- Extend training time
+- Risk missing graph patterns spanning longer time ranges if temporal features are not captured
 
 ### TGN Last Neighbor Sampling
 

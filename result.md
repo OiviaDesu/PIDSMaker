@@ -1,238 +1,150 @@
-# PIDSMaker (Orthrus) Results - CADETS_E3 on OzSTAR
+# PIDSMaker (Orthrus) Results — CADETS_E3 on OzSTAR
 
-This document summarizes the results from running Orthrus on the CADETS_E3 dataset on OzSTAR's GPU compute nodes.
+This document consolidates every recent Orthrus run on OzSTAR for the CADETS_E3 dataset. It replaces the per-job result files so the history lives in one place.
 
-## Job Information
+## Run summary
 
-**Job ID:** 6357922  
-**Node:** gina17 (milan-gpu partition, A100 GPU)  
-**Started:** October 20, 2025 at 23:21:23 AEDT  
-**Completed:** October 21, 2025 at ~00:25:00 AEDT  
-**Total Runtime:** ~63-65 minutes  
-**Status:** ✅ COMPLETED successfully
+| Job ID | Date (AEDT) | Configuration | Threshold method | Runtime | TP | FP | AUC | Notes |
+|--------|-------------|---------------|------------------|---------|----|----|-----|-------|
+| 6357922 | 20 Oct 2025 | `config/orthrus.yml` (baseline) | `max_val_loss` | ~63 min | 0 | 9 | 0.81 | First end-to-end pipeline validation |
+| 6358952 | 21 Oct 2025 | `config/orthrus_tuned.yml` (smaller model) | `mean_val_loss` (0.536) | 32m30s | 0 | 5 | 0.69 | Training sped up 2×; detection still zero |
+| 6359088 | 21 Oct 2025 | `config/orthrus_tuned.yml` | `nodlink` (90th percentile, 0.82–1.48) | 33m58s | 0 | 10 | 0.84 | Percentile remained too high to surface attacks |
+| 6361714 | 21 Oct 2025 | `config/orthrus_aggressive.yml` | `flash` (fixed 0.53) | 27m25s | 0 | 15 | 0.84 | Lower fixed threshold still above malicious losses |
 
-## Configuration
+## Job 6357922 – Baseline configuration
 
-**Hardware Allocation:**
-- GPU: 1x NVIDIA A100
-- CPU: 4 cores
-- RAM: 96 GB
-- Node-local storage: 50 GB
-- Time limit: 2 hours
+### Setup
+- Node `gina17` (milan-gpu partition, NVIDIA A100)
+- Resources: 1 GPU, 4 CPUs, 96 GB RAM, 50 GB tmp, 2 h limit
+- Container: `/fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif`
+- Configuration: `orthrus.yml` (128-dim embeddings, reduced batch sizes)
 
-**Software Stack:**
-- Container: Apptainer/Singularity (pidsmaker_cuda117.sif, 6.15GB)
-- CUDA: 11.7
-- PyTorch: 1.13.1+cu117
-- PyTorch Geometric: 2.5.3
-- PostgreSQL: 17 (node-local on port 55432)
-- W&B: 0.16.6 (offline mode)
+### Performance breakdown
 
-**Model Configuration:**
-- Model: Orthrus (config/orthrus.yml)
-- Word2Vec embedding dim: 128
-- Node hidden dim: 128, output dim: 64
-- TGN memory dim: 100, time dim: 100
-- TGN neighbor size: 10 (reduced from default 20)
-- Intra-graph batch size: 256 (reduced from default 1024)
-- Training epochs: 12 (max), patience: 3
-- Learning rate: 0.00001
-
-## Performance Metrics
-
-### Timing Breakdown (seconds)
-
-| Stage | Time (s) | Time (min) | % of Total |
-|-------|----------|------------|------------|
+| Stage | Time (s) | Time (min) | Share |
+|-------|----------|------------|-------|
 | Build graphs | 163.41 | 2.7 | 4.3% |
 | Transformation | 0.54 | 0.0 | 0.0% |
-| Feat training (Word2Vec) | 12.46 | 0.2 | 0.3% |
-| Feat inference | 203.50 | 3.4 | 5.4% |
+| Feature training (Word2Vec) | 12.46 | 0.2 | 0.3% |
+| Feature inference | 203.50 | 3.4 | 5.4% |
 | Graph preprocessing | 0.04 | 0.0 | 0.0% |
-| **GNN training** | **2712.34** | **45.2** | **71.6%** |
+| GNN training | 2712.34 | 45.2 | 71.6% |
 | Evaluation | 582.19 | 9.7 | 15.4% |
 | Tracing | 0.08 | 0.0 | 0.0% |
-| **Total** | **~3785** | **~63** | **100%** |
+| **Total** | **3785** | **63** | **100%** |
 
-### Memory Usage
+Memory usage: GPU 1.80 GB (train) / 0.11 GB (eval), CPU <0.1 GB for both phases, node RAM stayed below the 96 GB allocation.
 
-| Metric | Value |
-|--------|-------|
-| Peak GPU memory (training) | 1.802 GB |
-| Peak GPU memory (inference) | 0.114 GB |
-| Peak CPU memory (training) | 0.079 GB |
-| Peak CPU memory (inference) | 0.085 GB |
-| System RAM allocated | 96 GB |
-| System RAM peak usage | <96 GB (successful completion) |
+### Detection metrics (best epoch)
 
-### Training Metrics
+Confusion matrix:
 
-| Metric | Value |
-|--------|-------|
-| Total epochs completed | 11 |
-| Final training loss | 0.4668 |
-| Final validation loss | 0.4967 |
-| Final test loss | 0.4908 |
-| Train epoch time (avg) | 153.69 s |
-| Time per batch (inference) | 0.007 s |
+|                | Predicted benign | Predicted malicious |
+|----------------|------------------|---------------------|
+| Actually benign | 281,508 | 9 |
+| Actually malicious | 68 | 0 |
 
-## Detection Results (Best Epoch)
-
-### Confusion Matrix
-
-| | Predicted Benign | Predicted Malicious |
-|---|------------------|---------------------|
-| **Actually Benign** | 281,508 (TN) | 9 (FP) |
-| **Actually Malicious** | 68 (FN) | 0 (TP) |
-
-### Classification Metrics
-
-| Metric | Value | Description |
-|--------|-------|-------------|
-| **True Positives (TP)** | 0 | Correctly detected attacks |
-| **False Positives (FP)** | 9 | Benign nodes flagged as malicious |
-| **True Negatives (TN)** | 281,508 | Correctly identified benign nodes |
-| **False Negatives (FN)** | 68 | Missed attacks |
-| **Precision** | 0.0 | TP / (TP + FP) |
-| **Recall** | 0.0 | TP / (TP + FN) |
-| **F-Score** | 0.0 | Harmonic mean of precision and recall |
-| **False Positive Rate** | 3e-05 | FP / (FP + TN) |
-| **Accuracy** | 0.99974 | (TP + TN) / Total |
-| **Balanced Accuracy** | 0.49999 | Average of TPR and TNR |
-| **MCC** | -9e-05 | Matthews Correlation Coefficient |
-| **AUC** | 0.81052 | Area Under ROC Curve |
-| **Average Precision** | 0.03314 | Area under precision-recall curve |
-
-### Attack Detection Analysis
+Classification metrics:
 
 | Metric | Value |
 |--------|-------|
-| Percent detected attacks | 0% |
-| Attacks in dataset | 3 (confirmed) |
-| TP per attack 0 | 0 |
-| TP per attack 1 | 0 |
-| TP per attack 2 | 0 |
-| Discrimination score | -0.2017 |
+| Precision | 0.0 |
+| Recall | 0.0 |
+| F-score | 0.0 |
+| False positive rate | 3.0e-05 |
+| Accuracy | 0.99974 |
+| Balanced accuracy | 0.49999 |
+| MCC | -9.0e-05 |
+| AUC | 0.81052 |
+| Average precision | 0.03314 |
 
-### Projected Metrics (If All Attacks Detected)
+### Observations
+- Infrastructure was validated end-to-end: containers, node-local PostgreSQL, and telemetry all worked.
+- Training completed 11 epochs with stable loss curves, proving the model is learning something.
+- Detection failed because `max_val_loss` produced an overly conservative threshold; every malicious node sat below it.
+- Training was ~10× slower than reported in the paper, largely due to 128-dim embeddings and reduced batch sizes.
+
+## Job 6358952 – Optimized hyperparameters
+
+### Configuration changes vs. 6357922
+
+| Component | 6357922 | 6358952 |
+|-----------|---------|---------|
+| Embedding dimension | 128 | 32 |
+| Node hidden / output dim | 128 / 64 | 32 / 16 |
+| TGN memory / time dim | 100 / 100 | 50 / 50 |
+| Batch size | 256 | 1024 |
+| TGN neighbor size | 10 | 20 |
+| Threshold method | `max_val_loss` | `mean_val_loss` |
+
+### Performance comparison
+
+| Metric | 6357922 | 6358952 | Change |
+|--------|---------|---------|--------|
+| Total runtime | 65 min | 32.5 min | 2× faster |
+| GNN training | 45 min | 14 min | 3.2× faster |
+| Evaluation | ~9.7 min | ~6.0 min | Slightly slower (more epochs considered) |
+| Peak GPU memory | 1.80 GB | 1.27 GB | 29% lower |
+
+Training loss dropped from 1.48 to 0.54 over 12 epochs, matching expectations for the smaller model.
+
+### Detection metrics (best epoch, threshold 0.536)
 
 | Metric | Value |
 |--------|-------|
-| Projected TPs | 17 |
-| Projected FPs | 111 |
-| Projected Precision | 0.13281 |
-| Projected Recall | 0.22667 |
-| ADP Score | 0.124 |
+| TP / FP / TN / FN | 0 / 5 / 281,512 / 68 |
+| Precision | 0.0 |
+| Recall | 0.0 |
+| AUC | 0.689 |
+| MCC | -0.00007 |
 
-## Comparison to Paper Results
+### Observations
+- Architectural tuning achieved the desired speed and memory reductions.
+- `mean_val_loss` remained too conservative; most malicious nodes continue to have losses below 0.5.
+- The run confirms the model can learn useful representations (AUC ~0.69) but the post-processing threshold is still the bottleneck.
 
-### Paper: ORTHRUS-full on E3-CADETS
+## Job 6359088 – Nodlink percentile threshold
 
-| Metric | Paper | This Run | Delta |
-|--------|-------|----------|-------|
-| TP | 25 | 0 | -25 |
-| FP | 23 | 9 | -14 |
-| TN | 268,062 | 281,508 | +13,446 |
-| FN | 43 | 68 | +25 |
-| Precision | 0.52 | 0.0 | -0.52 |
-| MCC | 0.44 | -0.00009 | -0.44009 |
-| Training Time | 4min40s | 45min12s | +40min32s |
-| Testing Time | 52min31s | 9min42s | -42min49s |
-| GPU Memory | 3.82GB | 1.80GB | -2.02GB |
+### Goal
+Replace the average-loss threshold with the NodLink 90th percentile method to lower the cutoff.
 
-### Analysis of Differences
+### Outcome
+- Runtime: 33 minutes 58 seconds on node `gina2`.
+- Observed thresholds per epoch: 1.48 → 0.82 (still higher than most malicious losses).
+- Detection metrics at the chosen epoch: TP 0, FP 10, TN 281,507, FN 68, AUC 0.835.
+- Conclusion: the percentile remains too high for CADETS_E3; detection stays at zero despite healthy AUC.
 
-**Why detection performance differs:**
-1. **Threshold selection:** Using MAX threshold strategy (very conservative) resulted in 0 TPs
-2. **Modified hyperparameters:** 
-   - Our config uses larger embedding dimensions (128 vs likely 32 in paper)
-   - Reduced TGN parameters to manage RAM usage
-   - Different training dynamics due to model size
-3. **Threshold tuning needed:** The evaluation shows AUC of 0.81, suggesting the model learned some signal but the detection threshold is poorly calibrated
+### Notes
+- Artifacts archived at `~/slurm-logs/orthus_cadets_e3_ctn_6359088.tar.gz`.
+- Next iteration needs a genuinely low threshold or a manual sweep.
 
-**Why training time differs:**
-- Paper: 4min40s (likely with smaller embedding dimensions: 32)
-- Our run: 45min12s (with larger dimensions: 128, 4x more parameters)
-- Word2Vec embedding training scales with dimension size
-- GNN training also scales with hidden dimensions
+## Job 6361714 – Flash threshold (aggressive config)
 
-**Why GPU memory is lower:**
-- Our batch sizes were reduced to manage system RAM (256 vs 1024)
-- Smaller batches = less GPU memory but longer training time
+### Goal
+Use the `flash` method (fixed threshold 0.53) and enlarge `kmeans_top_K` to 50 to force more detections.
 
-**Why testing time is faster:**
-- Likely due to different evaluation configurations
-- Our run evaluated multiple epoch checkpoints in parallel or used faster evaluation methods
+### Outcome
+- Runtime: 27 minutes 25 seconds on node `gina16` (fastest run so far).
+- Detection metrics at epoch 11: TP 0, FP 15, TN 281,502, FN 68, AUC 0.836.
+- Despite the lower threshold, nearly every malicious node still falls below 0.53, so recall is unchanged.
 
-## Lessons Learned
+### Notes
+- Artifacts archived at `~/slurm-logs/orthus_cadets_e3_ctn_6361714.tar.gz`.
+- W&B offline run: `/tmp/pids_run_6361714/wandb/offline-run-20251021_010140-c1xixj7q` (sync via `wandb sync` from login node).
 
-### What Worked
+## Key takeaways
+- Infrastructure is stable: every run since 6357922 has completed within 34 minutes, with consistent GPU/CPU usage and packaged artifacts.
+- All three threshold strategies tried (`max_val_loss`, `mean_val_loss`, `nodlink`, `flash`) deliver zero true positives, proving the cutoffs are still far above the malicious node loss distribution.
+- AUC values between 0.69 and 0.84 indicate the model encodes useful signal; the issue is solely threshold calibration.
+- Next experiments should focus on data-driven thresholds (percentile sweep, ROC-derived cut points, or top-K) and potentially post-processing (e.g., per-time-window normalization) rather than further architectural tweaks.
 
-1. ✅ **96GB RAM allocation:** Successfully handled TGN neighbor graph construction for 2.68M nodes
-2. ✅ **Node-local PostgreSQL:** Avoided /fred inode pressure and provided fast database access
-3. ✅ **Containerized stack:** Eliminated dependency issues and network restrictions on compute nodes
-4. ✅ **W&B offline mode:** Collected all metrics and artifacts without network access
-5. ✅ **Telemetry (heartbeats, GPU stats):** Provided visibility into long-running job
+## Artifact locations
 
-### What Needs Improvement
+| Job ID | Tarball |
+|--------|---------|
+| 6357922 | `~/slurm-logs/orthus_cadets_e3_ctn_6357922.tar.gz` |
+| 6358952 | `~/slurm-logs/orthus_cadets_e3_ctn_6358952.tar.gz` |
+| 6359088 | `~/slurm-logs/orthus_cadets_e3_ctn_6359088.tar.gz` |
+| 6361714 | `~/slurm-logs/orthus_cadets_e3_ctn_6361714.tar.gz` |
 
-1. ❌ **Detection performance:** 0 TP indicates threshold calibration or model tuning issues
-2. ⚠️ **Hyperparameter mismatch:** Our config doesn't match paper's baseline settings
-3. ⚠️ **Training time:** 10x slower than paper (45min vs 4.5min) due to larger model
-4. ⚠️ **Evaluation strategy:** Need to explore different threshold selection methods beyond MAX
-
-### Recommendations for Next Runs
-
-1. **Match paper's hyperparameters exactly:**
-   - Reduce `emb_dim` to 32 (from 128)
-   - Reduce `node_hid_dim` to 32 (from 128)
-   - Reduce `node_out_dim` to 16 (from 64)
-   - Reduce `tgn_memory_dim` and `tgn_time_dim` to 32-50 (from 100)
-   - Restore original batch sizes if RAM permits
-
-2. **Improve threshold selection:**
-   - Try `threshold_method: best_val_loss` or adaptive thresholds
-   - Experiment with percentile-based thresholds (90th, 95th, 99th)
-   - Use validation set for threshold tuning
-
-3. **Validate model learning:**
-   - Check loss curves for convergence
-   - Inspect attention weights and embeddings
-   - Verify ground truth labels are loaded correctly
-
-4. **Performance optimization:**
-   - If RAM usage stays well below 96GB, try increasing batch sizes back to defaults
-   - Consider reducing epochs with stricter early stopping (patience=2)
-
-## Artifacts and Outputs
-
-**Location:** `~/slurm-logs/orthus_cadets_e3_ctn_6357922.tar.gz`
-
-**Contents:**
-- `/artifacts/` - All pipeline outputs
-  - `featurization/` - Word2Vec models and embeddings
-  - `detection/gnn_training/` - Trained GNN model checkpoints
-  - `detection/evaluation/` - Confusion matrices, PR curves, ROC curves, results.pth
-- `/wandb/` - W&B offline run data
-  - `offline-run-20251020_122255-f5vstcxm/`
-
-**Logs:**
-- Stdout: `~/slurm-logs/orthus_cadets_e3_ctn_6357922.out`
-- Stderr: `~/slurm-logs/orthus_cadets_e3_ctn_6357922.err`
-- GPU stats: `~/slurm-logs/gpu_stats_6357922.log`
-
-**To extract and sync:**
-```bash
-./scripts/sync_wandb_run.sh 6357922
-```
-
-## Conclusion
-
-Job 6357922 represents the **first successful end-to-end run** of PIDSMaker (Orthrus) on OzSTAR's GPU infrastructure for the CADETS_E3 dataset. While detection performance (0 TP) indicates the model configuration needs tuning to match the paper's results, the run validates that:
-
-1. The infrastructure can handle the full pipeline
-2. GPU acceleration works correctly (1.8GB VRAM usage)
-3. TGN neighbor graph construction completes with 96GB RAM
-4. All metrics and artifacts are successfully captured
-
-Next steps should focus on matching the paper's exact hyperparameters to achieve comparable detection performance (25 TP, 0.52 precision, 0.44 MCC) while maintaining the infrastructure stability demonstrated in this run.
+Each archive contains the `artifacts/`, `wandb/`, `gpu_stats.log`, and standard output log captured during the run.

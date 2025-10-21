@@ -142,12 +142,12 @@ This document details the root cause analysis and optimizations applied for the 
 ## Risk Assessment
 
 ### Low Risk
-✅ Training time improvement (5-9x speedup is well-understood from parameter counts)
-✅ GPU memory reduction (smaller model = less memory)
-✅ Batch size increase (job 6357922 had RAM headroom)
+- Training time improvement (5-9× speedup is well-understood from parameter counts)
+- GPU memory reduction (smaller model = less memory)
+- Batch size increase (job 6357922 had RAM headroom)
 
 ### Medium Risk
-⚠️ Detection performance may not match paper exactly due to:
+- Detection performance may not match paper exactly due to:
 - Random seed differences
 - Slight hyperparameter variations we haven't identified
 - Threshold selection sensitivity
@@ -158,7 +158,7 @@ This document details the root cause analysis and optimizations applied for the 
 3. Verify ground truth labels are loaded correctly
 
 ### High Risk
-❌ None identified - job 6357922 validated infrastructure works correctly
+- None identified — job 6357922 validated infrastructure works correctly
 
 ---
 

@@ -2,7 +2,7 @@
 
 This document tracks all significant problems encountered while running PIDSMaker/Orthrus on OzSTAR, along with their root causes and solutions.
 
-## Problem 1: Zero True Positives Detection (CRITICAL) ❌
+## Problem 1: Zero True Positives Detection (Critical, unresolved)
 
 ### Status
 **UNRESOLVED** - Affects jobs 6357922 and 6358952
@@ -30,25 +30,25 @@ The threshold methods provided (`max_val_loss`, `mean_val_loss`) are fundamental
 ### Evidence
 From job 6358952 logs, most malicious nodes detected show very low loss:
 ```
-Malicious node 355502 : loss=0.036 | is TP: ❌
-Malicious node 355507 : loss=0.037 | is TP: ❌  
-Malicious node 355470 : loss=0.440 | is TP: ❌
-Malicious node 355535 : loss=0.487 | is TP: ❌
+Malicious node 355502 : loss=0.036 | is TP: no
+Malicious node 355507 : loss=0.037 | is TP: no
+Malicious node 355470 : loss=0.440 | is TP: no
+Malicious node 355535 : loss=0.487 | is TP: no
 ```
 
 Only extreme outlier malicious nodes have high loss:
 ```
-Malicious node 147459 : loss=4.078 | is TP: ❌ (network connection)
-Malicious node 147460 : loss=4.096 | is TP: ❌ (network connection)
-Malicious node 147461 : loss=4.216 | is TP: ❌ (network connection)
+Malicious node 147459 : loss=4.078 | is TP: no (network connection)
+Malicious node 147460 : loss=4.096 | is TP: no (network connection)
+Malicious node 147461 : loss=4.216 | is TP: no (network connection)
 ```
 
 With threshold=0.536, nodes with loss < 0.536 are classified as normal, causing 0 TP.
 
 ### Attempted Solutions
-1. ❌ Changed from `max_val_loss` to `mean_val_loss` (job 6358952) - Still 0 TP
-2. ❌ Optimized model architecture (smaller dims) - Didn't fix threshold issue
-3. ❌ Increased batch sizes - Unrelated to threshold problem
+1. Attempt: Changed from `max_val_loss` to `mean_val_loss` (job 6358952) - unsuccessful (still 0 TP)
+2. Attempt: Optimized model architecture (smaller dimensions) - unsuccessful (threshold issue remains)
+3. Attempt: Increased batch sizes - no effect on threshold problem
 
 ### Recommended Solutions
 1. **Try dataset-specific threshold methods:**
@@ -85,7 +85,7 @@ With threshold=0.536, nodes with loss < 0.536 are classified as normal, causing 
 
 ---
 
-## Problem 2: PostgreSQL Not in Container ❌
+## Problem 2: PostgreSQL Not in Container (Resolved)
 
 ### Status
 **RESOLVED** - Used conda environment instead
@@ -100,8 +100,8 @@ No log file found
 Container image `pidsmaker_cuda117.sif` doesn't include PostgreSQL binaries (`pg_ctl`, `pg_isready`, etc.)
 
 ### Attempted Solutions
-1. ❌ Tried to start PostgreSQL from container - Binary not found
-2. ❌ Looked for system PostgreSQL modules - None available on OzSTAR
+1. Attempt: Tried to start PostgreSQL from container - failed (binary not found)
+2. Attempt: Looked for system PostgreSQL modules - failed (modules unavailable on OzSTAR)
 
 ### Solution
 Installed PostgreSQL 17 in dedicated conda environment:
@@ -121,7 +121,7 @@ PG_BIN="/fred/oz396/dunguyen/.conda/envs/pg17/bin"
 
 ---
 
-## Problem 3: Invalid Threshold Method Configuration ❌
+## Problem 3: Invalid Threshold Method Configuration (Resolved)
 
 ### Status
 **RESOLVED**
@@ -149,7 +149,7 @@ threshold_method: mean_val_loss  # Changed from best_val_loss
 
 ---
 
-## Problem 4: PostgreSQL Data Directory Already Exists ❌
+## Problem 4: PostgreSQL Data Directory Already Exists (Resolved)
 
 ### Status
 **RESOLVED**
@@ -173,7 +173,7 @@ mamba create -n pg17 postgresql=17 -c conda-forge -y
 
 ---
 
-## Problem 5: Slow Training Time (Partially Resolved) ⚠️
+## Problem 5: Slow Training Time (Partially Resolved)
 
 ### Status
 **PARTIALLY RESOLVED** - Speed improved, but detection broken
@@ -205,17 +205,17 @@ tgn_neighbor_size: 20 # Was 10 (restored to default)
 ```
 
 ### Results
-- **GNN training:** 45 min → 14 min (3.2x faster) ✅
-- **Total runtime:** 65 min → 32.5 min (2x faster) ✅
-- **GPU memory:** 1.8 GB → 1.27 GB (29% reduction) ✅
-- **Detection:** Still 0 TP ❌
+- **GNN training:** 45 min → 14 min (3.2x faster) (successful)
+- **Total runtime:** 65 min → 32.5 min (2x faster) (successful)
+- **GPU memory:** 1.8 GB → 1.27 GB (29% reduction) (successful)
+- **Detection:** Still 0 TP (unsuccessful)
 
 ### Impact
 **SUCCESS for speed, FAILED for detection** - Model trains faster but doesn't detect anything
 
 ---
 
-## Problem 6: Milan-GPU Partition Temporarily Down ⚠️
+## Problem 6: Milan-GPU Partition Temporarily Down
 
 ### Status
 **TRANSIENT** - Partition came back online
@@ -237,28 +237,424 @@ Waited for partition to come back online (~15 minutes)
 
 ---
 
+## Problem 7: PostgreSQL Dump Version Mismatch (Resolved)
+
+### Status
+**RESOLVED** - PostgreSQL 17 toolchain installed
+
+### Symptoms
+- `pg_restore: unsupported version (1.16) in file header`
+- Restores failed when using older PostgreSQL clients
+
+### Root Cause
+Dataset dump created with newer PostgreSQL (v16+) while local environment used older binaries
+
+### Solution
+- Installed PostgreSQL 17 in dedicated conda environment
+- Initialized cluster under `/fred/oz396/dunguyen/pg/data`
+- Restored `cadets_e3` using PG17 tools without errors
+
+### Impact
+**HIGH** - Blocked database restore until client/server versions matched
+
+---
+
+## Problem 8: Disk Quota Limits During CUDA Installs (Resolved)
+
+### Status
+**RESOLVED** - Containerized dependencies
+
+### Symptoms
+- `no space left on device` when installing CUDA-enabled PyTorch / PyG wheels via conda or pip
+- Large caches accumulated under `/home` and `/fred`
+
+### Root Cause
+Project quotas on `/home` and `/fred` insufficient for repeated GPU wheel installs and caches
+
+### Solution
+- Avoided per-node installs; built Apptainer SIF with prepackaged dependencies stored on `/fred`
+- Redirected Apptainer cache and tmp directories to `/fred/oz396/dunguyen/.apptainer/{cache,tmp}`
+
+### Impact
+**MODERATE** - Prevented environment setup during jobs
+
+---
+
+## Problem 9: Compute Nodes Lack Outbound Network (Known Limitation)
+
+### Status
+**KNOWN LIMITATION** - Must plan around network restrictions
+
+### Symptoms
+- pip and conda failed during job runtime with connection errors
+- Apptainer builds attempted to pull base images and stalled
+
+### Root Cause
+OzSTAR compute nodes are intentionally isolated from the public internet
+
+### Solution
+- Build Apptainer images on login nodes with outbound access
+- Bundle all Python dependencies (Torch, PyG, NLTK data) inside the container
+- Documented workflow so no network calls happen during jobs
+
+### Impact
+**HIGH** - Any workflow assuming live package installs will fail
+
+---
+
+## Problem 10: PyTorch and PyG CUDA Compatibility (Resolved)
+
+### Status
+**RESOLVED** - Standardized versions inside container
+
+### Symptoms
+- Import errors and binary incompatibilities between Torch, Torchvision, and PyG wheels
+
+### Root Cause
+Version mismatches when mixing module-provided Torch with downloaded PyG wheels
+
+### Solution
+- Standardized on `torch==1.13.1+cu117` and `pyg==2.5.3`
+- Baked the compatible stack into the Apptainer image
+
+### Impact
+**MODERATE** - Blocked model start-up until resolved
+
+---
+
+## Problem 11: Slurm ExitCode 0:53 Failures (Resolved)
+
+### Status
+**RESOLVED** - Prebuilt container and resilient logging
+
+### Symptoms
+- Jobs exited within seconds with `FAILED 0:53`
+- No stdout/err captured on `/fred`
+
+### Root Cause
+Apptainer attempted to build or pull images on compute nodes and wrote to unwritable `/tmp` locations; `/fred` not always available at job launch
+
+### Solution
+- Prebuilt SIF stored on `/fred`
+- Set Apptainer cache/tmp to project-owned paths
+- Routed Slurm stdout/err to `~/slurm-logs` to avoid early write failures
+
+### Impact
+**HIGH** - Jobs failed immediately before training
+
+---
+
+## Problem 12: Module PyTorch with Node-Local Virtualenv (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- pip installs for PyG wheels failed during job startup because packages were not cached
+
+### Root Cause
+Compute nodes cannot reach package mirrors, so wheel downloads timed out
+
+### Solution
+- Abandoned node-local virtualenv approach in favor of self-contained Apptainer image
+
+### Impact
+**LOW** - Early experimentation path retired
+
+---
+
+## Problem 13: Apptainer Build on Compute Nodes (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- `FATAL: conveyor failed to get: pinging container registry ... connection refused`
+
+### Root Cause
+Attempted to build Apptainer image inside Slurm job without network access
+
+### Solution
+- Build SIF on login node and reuse artifact for jobs
+
+### Impact
+**LOW** - Clarified build process
+
+---
+
+## Problem 14: GPU Visibility Confusion on Login Nodes (Clarified)
+
+### Status
+**CLARIFIED**
+
+### Symptoms
+- `torch.cuda.is_available()` returned `False` on login nodes, causing concern about CUDA availability
+
+### Root Cause
+Login nodes lack GPUs and `--nv` flag not used during ad-hoc tests
+
+### Solution
+- Documented expectation that CUDA is only available inside jobs with `apptainer exec --nv`
+- Added preflight CUDA check inside job scripts to print availability
+
+### Impact
+**LOW** - Avoided false troubleshooting efforts
+
+---
+
+## Problem 15: Weights & Biases Initialization Mode (Resolved)
+
+### Status
+**RESOLVED** - Honor offline mode and `.env` configuration
+
+### Symptoms
+- `wandb.init` timeout when `--wandb` flag used on compute nodes
+- Timeout persisted even after setting `WANDB_MODE=offline`
+
+### Root Cause
+Application forced `mode="online"` when CLI flag present, conflicting with network-restricted environment
+
+### Solution
+- Patched `pidsmaker/main.py` to respect `WANDB_MODE`
+- Documented workflow: run jobs in offline mode, then execute `wandb sync` from login node if needed
+
+### Impact
+**MODERATE** - Jobs failed until patched
+
+---
+
+## Problem 16: Path Bindings and Artifact Locations (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- Confusion over where logs and artifacts were written inside the container
+
+### Root Cause
+Inconsistent bind mounts between `/home` workspace and `/fred` storage
+
+### Solution
+- Standardized Apptainer binds:
+   - `-B /fred/oz396/dunguyen:/fred/oz396/dunguyen`
+   - `-B /home/dunguyen/git/PIDSMaker:/opt/PIDSMaker`
+- Defined artifact directory `/fred/oz396/dunguyen/pids_artifacts` and logs under `/fred/oz396/dunguyen/pids_logs`
+
+### Impact
+**LOW** - Improved reproducibility and debugging
+
+---
+
+## Problem 17: PostgreSQL Service Management Within Jobs (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- Jobs occasionally started without PostgreSQL running, causing connection failures
+
+### Root Cause
+Node-local PostgreSQL required explicit startup when job began
+
+### Solution
+- Slurm scripts now detect existing PG instance and start `pg_ctl` if required using data directory on `/fred`
+
+### Impact
+**MODERATE** - Prevented intermittent job failures
+
+---
+
+## Problem 18: /fred Inode Quota Exhaustion (Critical, unresolved)
+
+### Status
+**UNRESOLVED** - Requires project-wide cleanup
+
+### Symptoms
+- Immediate job failure: `Disk quota exceeded`
+- PostgreSQL errors: `could not create file ... Disk quota exceeded`, `could not create lock file "postmaster.pid"`
+- Group quota report: >99.9% of one million inodes consumed
+
+### Root Cause
+Project members collectively exhausted inode quota, primarily due to large conda caches and environments
+
+### Solution
+- Identify heavy users (`thoang`, `aho`) and request they run `conda clean --all --yes` and prune unused environments
+- Engage system administrators to request quota increase if cleanup insufficient
+
+### Impact
+**CRITICAL** - Blocks creation of new files, preventing PostgreSQL from starting and jobs from running
+
+### Next Steps
+1. Coordinate cleanup with project members holding large inode counts
+2. Escalate to support if quota increase is required
+
+---
+
+## Problem 19: Node-Local Path Capacity for PGDATA (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- `Permission denied` when creating node-local working directory under `/jobfs`
+- `rsync: write failed ... No space left on device` while copying PGDATA to `/tmp`
+
+### Root Cause
+- Some node-local paths were not writable or had insufficient space under default tmp directories
+
+### Solution
+- Switched to `${SLURM_TMPDIR:-${TMPDIR:-/tmp}}` and requested `--tmp=50G`
+- Ensured node-local PostgreSQL runs from adequately sized temporary storage
+
+### Impact
+**MODERATE** - Prevented database initialization until resolved
+
+---
+
+## Problem 20: lmod PS1 Unbound Variable Under `set -u` (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- `/apps/system/lmod/lmod/init/bash: line 106: PS1: unbound variable`
+
+### Root Cause
+Shell ran with `set -u`, causing lmod initialization to fail when `PS1` unset in non-interactive shell
+
+### Solution
+- Wrapped module and conda initialization with `set +u`
+- Set default `PS1` before loading modules, then restored `set -u`
+
+### Impact
+**LOW** - Prevented environment setup until patched
+
+---
+
+## Problem 21: CLI Database Flag Rejections (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- `argparse` errors: `Unknown args ['--database.host=...']`
+
+### Root Cause
+Database connection overrides not exposed as CLI options
+
+### Solution
+- Removed unsupported CLI flags from Slurm scripts
+- Relied on configuration file defaults for database settings
+
+### Impact
+**LOW** - Minor script cleanup
+
+---
+
+## Problem 22: Model Name Typo (`orthus` vs `orthrus`) (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- `ValueError: Unknown model orthus`
+
+### Root Cause
+Typographical error in Slurm scripts referencing model name
+
+### Solution
+- Updated scripts to use `orthrus`
+
+### Impact
+**LOW** - Quick fix once identified
+
+---
+
+## Problem 23: Missing psycopg2 Driver in Container (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- `ModuleNotFoundError: No module named 'psycopg2'`
+
+### Root Cause
+Base Apptainer image lacked PostgreSQL client driver
+
+### Solution
+- Added `psycopg2-binary==2.9.9` to container definition and rebuilt SIF
+
+### Impact
+**LOW** - Required rebuild but straightforward
+
+---
+
+## Problem 24: NLTK Punkt Downloads (Resolved)
+
+### Status
+**RESOLVED**
+
+### Symptoms
+- `Error loading punkt: Temporary failure in name resolution`
+
+### Root Cause
+NLTK attempted to download resources at runtime without network access
+
+### Solution
+- Pre-downloaded `punkt` during container build and set `NLTK_DATA=/usr/local/share/nltk_data`
+
+### Impact
+**LOW** - Ensured text preprocessing works offline
+
+---
+
+## Problem 25: TGN Neighbor Graph Construction OOM (Resolved)
+
+### Status
+**RESOLVED** - Increased memory allocation
+
+### Symptoms
+- Jobs failed with `OUT_OF_MEMORY` during "Computing TGN last neighbor graphs"
+- Failures occurred even with reduced neighborhood parameters
+
+### Root Cause
+CADeTS_E3 dataset (2.68M nodes) requires substantial RAM during TGN neighbor graph batching
+
+### Solution
+- Increased Slurm memory request to 96 GB
+- Job 6357922 completed successfully with higher memory allocation
+
+### Impact
+**HIGH** - Blocked training until memory increased
+
+### Notes
+- Peak GPU memory was modest (~1.8 GB); system RAM was the limiting factor
+- Consider disabling TGN batching or using higher-memory nodes for larger datasets
+
+---
+
 ## Summary of Current Status
 
-### Resolved ✅
+### Resolved
 - PostgreSQL installation and setup
 - Configuration validation errors
 - Training speed optimization
 - GPU memory optimization
 
-### Unresolved ❌
+### Unresolved
 - **CRITICAL:** Zero true positive detection due to wrong threshold methodology
-- Need to try alternative threshold methods or implement custom solution
+- **CRITICAL:** /fred inode quota exhaustion blocking PostgreSQL startup and file creation
 
 ### Optimization Results
 
 | Metric | Before (6357922) | After (6358952) | Status |
 |--------|------------------|-----------------|---------|
-| Runtime | 65 min | 32.5 min | ✅ 2x faster |
-| GNN Training | 45 min | 14 min | ✅ 3.2x faster |
-| GPU Memory | 1.8 GB | 1.27 GB | ✅ 29% less |
-| True Positives | 0 | 0 | ❌ Still broken |
-| Precision | 0.0 | 0.0 | ❌ Still broken |
-| AUC | 0.81 | 0.70 | ⚠️ Slightly worse |
+| Runtime | 65 min | 32.5 min | Improved (2x faster) |
+| GNN Training | 45 min | 14 min | Improved (3.2x faster) |
+| GPU Memory | 1.8 GB | 1.27 GB | Improved (29% less) |
+| True Positives | 0 | 0 | Unchanged (still zero) |
+| Precision | 0.0 | 0.0 | Unchanged (still zero) |
+| AUC | 0.81 | 0.70 | Slightly worse |
 
 ### Critical Next Action
 **Fix threshold selection** - This is blocking all downstream work. Model architecture is fine; threshold methodology is broken.

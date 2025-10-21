@@ -103,11 +103,12 @@ This file records every significant command used to set up and run PIDSMaker (Or
   # Result: 36,484,667 events (database intact!)
   ```
 
-### Job 6358952 - OPTIMIZED RUN ✅ SUCCESS (October 21, 2025)
+### Job 6358952 - Optimized Run (Completed) (October 21, 2025)
 - **Config:** config/orthrus_tuned.yml (optimized hyperparameters)
-- **Status:** ✅ COMPLETED in 32 minutes 30 seconds
+- **Status:** Completed in 32 minutes 30 seconds
 - **Node:** gina2
 - **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+- **Optimizations Applied:**
 - **Optimizations Applied:**
   - Embedding dim: 128 → 32 (4x reduction)
   - Node dims: 128/64 → 32/16 (4x reduction)
@@ -117,36 +118,46 @@ This file records every significant command used to set up and run PIDSMaker (Or
   - Threshold: max_val_loss → mean_val_loss
   - PostgreSQL: Node-local on /tmp for faster I/O
 - **Results:**
-  - **Speed:** 32.5 min vs 65 min (2x faster) ✅
-  - **GPU Memory:** 1.27 GB vs 1.8 GB (29% reduction) ✅
-  - **GNN Training:** 14 min vs 45 min (3.2x faster) ✅
-  - **Detection:** 0 TP (STILL BROKEN) ❌
-  - **AUC:** 0.70 (vs 0.81 in job 6357922)
-  - **Threshold:** mean_val_loss = 0.536 (still too high)
+  - Training speed: 32.5 min vs 65 min (2x faster)
+  - GPU memory: 1.27 GB vs 1.8 GB (29% reduction)
+  - GNN training: 14 min vs 45 min (3.2x faster)
+  - Detection: 0 TP (still broken)
+  - AUC: 0.70 (vs 0.81 in job 6357922)
+  - Threshold: mean_val_loss = 0.536 (still too high)
 - **Conclusion:** Speed optimization SUCCESS, detection FAILED
 - **Next step:** Fix threshold selection method, not model hyperparameters
 - **Artifacts:** `~/slurm-logs/orthus_cadets_e3_ctn_6358952.tar.gz`
 - **Full analysis:** See `result_6358952.md`
 
-### Job 6359088 - THRESHOLD FIX: nodlink (90th percentile) 🎯 (October 21, 2025)
+### Job 6359088 - Threshold Fix (nodlink 90th percentile) (October 21, 2025)
 - **Config:** config/orthrus_tuned.yml (nodlink threshold method)
-- **Status:** PENDING
+- **Status:** Completed in 33 minutes 58 seconds (0 TP)
 - **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
-- **Critical Fix Applied:**
-  - Threshold: mean_val_loss → **nodlink** (90th percentile)
-  - Rationale: mean=0.536 too high; most malicious nodes have loss <0.5
-  - nodlink uses 90th percentile (~0.4-0.5 range) for better anomaly detection
-- **Expected Results:**
-  - **Speed:** ~14 min training (ACHIEVED in 6358952) ✅
-  - **GPU Memory:** ~1.27 GB (ACHIEVED in 6358952) ✅
-  - **Detection:** Target 20-25 TP (fixing threshold bottleneck)
-  - **Precision:** Target 0.4-0.5 (matching paper baseline)
-  - **Recall:** Target 0.3-0.4 (matching paper baseline)
-- **Why nodlink?**
-  - Uses 90th percentile instead of mean → more selective
-  - Proven method from NodLink paper
-  - Should catch high-loss outlier nodes (anomalies)
-  - Alternative hardcoded thresholds: threatrace=1.5 (too high), flash=0.53 (similar to mean)
+- **Changes Compared to 6358952:**
+  - Threshold: mean_val_loss → nodlink percentile
+  - Other hyperparameters identical to optimized run
+- **Outcome:**
+  - Runtime: 33 minutes 58 seconds
+  - Threshold values observed: 0.82–1.48 (higher than expected)
+  - Detection: 0 TP, 10 FP, AUC 0.84 (threshold still too conservative)
+  - Conclusion: nodlink percentile remains ineffective for this dataset
+- **Artifacts:** `~/slurm-logs/orthus_cadets_e3_ctn_6359088.tar.gz`
+- **Follow-up:** Implement lower fixed threshold (flash) or custom percentile
+
+### Job 6361714 - Aggressive Threshold (flash) (October 21, 2025)
+- **Config:** config/orthrus_aggressive.yml (flash threshold method)
+- **Status:** Completed in 27 minutes 25 seconds (0 TP)
+- **Command:** `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm`
+- **Key Adjustments:**
+  - Threshold: nodlink → flash (fixed at 0.53)
+  - kmeans_top_K: 30 → 50 to widen candidate pool
+  - Other hyperparameters match optimized configuration
+- **Outcome:**
+  - Runtime: 27 minutes 25 seconds (fastest run so far)
+  - Detection: 0 TP, 29–31 FP, AUC 0.70–0.71
+  - Flash threshold still above most malicious node losses; detection remains broken
+- **Artifacts:** `~/slurm-logs/orthus_cadets_e3_ctn_6361714.tar.gz`
+- **Next Step:** Try truly low or percentile-based thresholds (e.g., manual sweep or threatrace) and consider k-means post-processing tweaks
 
 - **OPTIMIZED RUN** with tuned configuration (October 21, 2025)
   - `sbatch scripts/run_orthus_cadets_e3_apptainer.slurm` → JobID 6358565 (PENDING Priority)
@@ -202,11 +213,11 @@ This file records every significant command used to set up and run PIDSMaker (Or
 
 - GPU jobs with progressive memory increases to resolve TGN OOM:
   - JobID 6357475: OUT_OF_MEMORY after 8m48s (24G RAM) during TGN neighbor graph construction
-  - JobID 6357821: OUT_OF_MEMORY after 10m20s (48G RAM, peaked at 38.2GB) during TGN neighbor graph construction
-  - JobID 6357922: ✅ COMPLETED successfully with 96G RAM (started 23:21:23, finished ~00:25:00 on gina17)
-    - ✅ Successfully passed TGN neighbor graph construction at ~10-11 minutes
-    - ✅ GNN training completed: 11 epochs, ~45 minutes
-    - ✅ Evaluation completed: all epoch checkpoints tested
+    - JobID 6357821: OUT_OF_MEMORY after 10m20s (48G RAM, peaked at 38.2GB) during TGN neighbor graph construction
+    - JobID 6357922: Completed successfully with 96G RAM (started 23:21:23, finished ~00:25:00 on gina17)
+      - Passed TGN neighbor graph construction at ~10-11 minutes
+      - GNN training completed: 11 epochs, ~45 minutes
+      - Evaluation completed: all epoch checkpoints tested
     - GPU memory: 1.80 GB peak (training), 0.11 GB (inference)
     - Total runtime: ~63-65 minutes
     - Artifacts packaged to: ~/slurm-logs/orthus_cadets_e3_ctn_6357922.tar.gz
