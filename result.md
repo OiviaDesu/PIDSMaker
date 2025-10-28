@@ -1099,3 +1099,30 @@ All tuned job outputs archived at `/fred/oz396/dunguyen/slurm-logs/`:
 
 
 
+
+
+## Batch 2 Results (auto-generated) — 2025-10-29 02:47:10
+
+Source CSV: results/batch2_metrics.csv
+
+| dataset | model | config | state | elapsed | precision | recall | f1 | auc | tp | fp |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+|  | kairos |  | FAILED | 00:00:22 |  |  |  |  |  |  |
+|  | kairos |  | FAILED | 00:00:20 |  |  |  |  |  |  |
+|  | kairos |  | FAILED | 00:00:25 |  |  |  |  |  |  |
+|  | kairos |  | FAILED | 00:00:22 |  |  |  |  |  |  |
+|  | kairos |  | FAILED | 00:00:24 |  |  |  |  |  |  |
+|  | kairos |  | FAILED | 00:00:23 |  |  |  |  |  |  |
+|  | magic |  | FAILED | 00:00:23 |  |  |  |  |  |  |
+|  | magic |  | FAILED | 00:00:20 |  |  |  |  |  |  |
+|  | magic |  | FAILED | 00:00:23 |  |  |  |  |  |  |
+|  | magic |  | FAILED | 00:00:23 |  |  |  |  |  |  |
+|  | magic |  | FAILED | 00:00:24 |  |  |  |  |  |  |
+|  | magic |  | FAILED | 00:00:24 |  |  |  |  |  |  |
+|  | orthrus |  | FAILED | 00:00:33 |  |  |  |  |  |  |
+|  | orthrus |  | FAILED | 00:00:21 |  |  |  |  |  |  |
+|  | orthrus |  | FAILED | 00:00:23 |  |  |  |  |  |  |
+|  | orthrus |  | FAILED | 00:00:23 |  |  |  |  |  |  |
+|  | orthrus |  | FAILED | 00:00:24 |  |  |  |  |  |  |
+|  | orthrus |  | FAILED | 00:00:24 |  |  |  |  |  |  |
+

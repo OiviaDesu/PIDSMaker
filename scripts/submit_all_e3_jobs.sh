@@ -88,6 +88,9 @@ submit_job() {
 set -x
 set -e
 
+# Ensure log directory exists on shared storage
+mkdir -p LOG_DIR_PLACEHOLDER
+
 # Environment
 export WANDB_MODE=offline
 export PYTHONUNBUFFERED=1
@@ -116,6 +119,12 @@ cleanup() {
     rm -rf "${TMPDIR}"
 }
 trap cleanup EXIT
+
+# Ensure Apptainer is available on compute node
+if ! command -v apptainer >/dev/null 2>&1; then
+    module load apptainer || true
+fi
+command -v apptainer || { echo "ERROR: apptainer not found in PATH" >&2; exit 127; }
 
 # Initialize PostgreSQL with UTF-8
 echo "Initializing PostgreSQL..."
