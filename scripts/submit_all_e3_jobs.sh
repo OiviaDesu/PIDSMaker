@@ -149,11 +149,13 @@ for i in {1..30}; do
     sleep 2
 done
 
-# Create database schemas
-echo "Creating databases..."
-for db in DATASET_LC_PLACEHOLDER; do
-    PG_BIN_PLACEHOLDER/createdb -h 127.0.0.1 -p 55432 -U postgres "${db}" || echo "Database ${db} may already exist"
-done
+# Create database and restore from dump
+echo "Creating database and restoring from dump..."
+PG_BIN_PLACEHOLDER/createdb -h 127.0.0.1 -p 55432 -U postgres DATASET_LC_PLACEHOLDER || echo "Database DATASET_LC_PLACEHOLDER may already exist"
+
+echo "Restoring database from /fred/oz396/dunguyen/data/DATASET_LC_PLACEHOLDER.dump..."
+PG_BIN_PLACEHOLDER/pg_restore -h 127.0.0.1 -p 55432 -U postgres -d DATASET_LC_PLACEHOLDER \
+    /fred/oz396/dunguyen/data/DATASET_LC_PLACEHOLDER.dump || echo "Restore may have completed with warnings"
 
 # Run PIDSMaker inside Apptainer
 echo "Running PIDSMaker..."
