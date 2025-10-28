@@ -97,8 +97,8 @@ export PYTHONUNBUFFERED=1
 
 # Job-specific paths
 JOB_ID=$SLURM_JOB_ID
-# Use unique port per job to avoid conflicts when multiple jobs run on same node  
-PG_PORT=\$((55432 + (JOB_ID % 1000)))
+# Use unique port per job to avoid conflicts when multiple jobs run on same node
+PG_PORT=$((55432 + (JOB_ID % 1000)))
 TMPDIR="/fred/oz396/dunguyen/tmp/pidsmaker_${JOB_ID}"
 PGDATA="${TMPDIR}/pgdata"
 ARTIFACT_DIR="${TMPDIR}/artifacts"
@@ -137,8 +137,8 @@ PG_BIN_PLACEHOLDER/initdb -D "${PGDATA}" \
     --username=postgres
 
 # Start PostgreSQL
-echo "Starting PostgreSQL on port \${PG_PORT}..."
-PG_BIN_PLACEHOLDER/pg_ctl -D "${PGDATA}" -l "${PG_LOG}" -o "-p \${PG_PORT}" start
+echo "Starting PostgreSQL on port ${PG_PORT}..."
+PG_BIN_PLACEHOLDER/pg_ctl -D "${PGDATA}" -l "${PG_LOG}" -o "-p ${PG_PORT}" start
 
 # Wait for PostgreSQL to be ready
 sleep 10
@@ -153,10 +153,10 @@ done
 
 # Create database and restore from dump
 echo "Creating database and restoring from dump..."
-PG_BIN_PLACEHOLDER/createdb -h 127.0.0.1 -p \${PG_PORT} -U postgres DATASET_LC_PLACEHOLDER || echo "Database DATASET_LC_PLACEHOLDER may already exist"
+PG_BIN_PLACEHOLDER/createdb -h 127.0.0.1 -p ${PG_PORT} -U postgres DATASET_LC_PLACEHOLDER || echo "Database DATASET_LC_PLACEHOLDER may already exist"
 
 echo "Restoring database from /fred/oz396/dunguyen/data/DATASET_LC_PLACEHOLDER.dump..."
-PG_BIN_PLACEHOLDER/pg_restore -h 127.0.0.1 -p \${PG_PORT} -U postgres -d DATASET_LC_PLACEHOLDER \
+PG_BIN_PLACEHOLDER/pg_restore -h 127.0.0.1 -p ${PG_PORT} -U postgres -d DATASET_LC_PLACEHOLDER \
     /fred/oz396/dunguyen/data/DATASET_LC_PLACEHOLDER.dump || echo "Restore may have completed with warnings"
 
 # Run PIDSMaker inside Apptainer
@@ -170,7 +170,7 @@ apptainer exec --nv \
         --artifact_dir_in_container ${ARTIFACT_DIR} \
         --restart_from_scratch \
         --force_restart=build_graphs \
-        --db_port \${PG_PORT} \
+        --db_port ${PG_PORT} \
         --wandb --project PROJECT_PLACEHOLDER \
         2>&1 | tee ${RUN_LOG}"
 
