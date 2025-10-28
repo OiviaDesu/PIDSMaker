@@ -824,6 +824,39 @@ def get_days_from_cfg(cfg):
     return days
 
 
+def get_darpa_tc_node_feats_from_cfg(cfg):
+    """
+    Return a mapping of DARPA node types to the list of label fields to use when
+    building node labels. We provide sensible defaults so preprocessing can
+    import this helper even if the CLI/YML hasn't set explicit values.
+
+    Expected return shape:
+      { 'subject': ['path','cmd_line'], 'file': ['path'], 'netflow': ['remote_ip','remote_port'] }
+    """
+    # Try to read the user-provided config first
+    try:
+        node_label_cfg = cfg.preprocessing.build_graphs.node_label_features
+        if node_label_cfg is not None:
+            out = {}
+            # For each expected node type, fall back to defaults if missing
+            out["subject"] = (
+                getattr(node_label_cfg, "subject", None) or ["path", "cmd_line"]
+            )
+            out["file"] = getattr(node_label_cfg, "file", None) or ["path"]
+            out["netflow"] = getattr(node_label_cfg, "netflow", None) or ["remote_ip", "remote_port"]
+            return out
+    except Exception:
+        # If cfg is not fully initialized or missing attributes, fall back to defaults
+        pass
+
+    # Default mapping for DARPA TC datasets
+    return {
+        "subject": ["path", "cmd_line"],
+        "file": ["path"],
+        "netflow": ["remote_ip", "remote_port"],
+    }
+
+
 def get_uncertainty_methods_to_run(cfg):
     yml_file = get_yml_file(os.path.join(UNCERTAINTY_EXP_YML_FOLDER, cfg._experiment))
     validate_yml_file(yml_file, TASK_ARGS)
