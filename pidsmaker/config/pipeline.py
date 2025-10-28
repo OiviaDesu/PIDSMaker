@@ -35,6 +35,23 @@ DATABASE_DEFAULT_CONFIG = {
     "password": "postgres",  # The password to the database user
     "port": "55432",  # The port number for node-local Postgres
 }
+# Marker file name used to signal a finished task directory
+TASK_FINISHED_FILE = "TASK_FINISHED"
+
+
+def set_task_to_done(task_path: str):
+    """
+    Create a small marker file in the given task directory to signal the task completed.
+    Other parts of the pipeline detect this to skip recomputation.
+    """
+    try:
+        os.makedirs(task_path, exist_ok=True)
+        marker = os.path.join(task_path, TASK_FINISHED_FILE)
+        with open(marker, "w") as f:
+            f.write("done")
+    except Exception:
+        # Don't crash the pipeline on marker write errors
+        pass
 # ================================================================================
 
 
