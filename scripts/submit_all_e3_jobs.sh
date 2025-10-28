@@ -97,7 +97,7 @@ export PYTHONUNBUFFERED=1
 
 # Job-specific paths
 JOB_ID=$SLURM_JOB_ID
-TMPDIR="/tmp/pidsmaker_${JOB_ID}"
+TMPDIR="/fred/oz396/dunguyen/tmp/pidsmaker_${JOB_ID}"
 PGDATA="${TMPDIR}/pgdata"
 ARTIFACT_DIR="${TMPDIR}/artifacts"
 PG_LOG="${TMPDIR}/postgres.log"
