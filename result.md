@@ -1118,6 +1118,18 @@ What remains before any resubmit:
 Next action when permitted to resubmit:
 - Re-run the same batch with the above fixes; expect removal of the unknown-args failure and avoidance of /tmp exhaustion via node-local scratch usage.
 
+## Batch 11 — resubmission (2025-10-29)
+
+I resubmitted the E3 batch (18 jobs) on 2025-10-29 after applying the fixes described above. The submitted Slurm job IDs are:
+
+6532711 6532712 6532713 6532714 6532715 6532716 6532717 6532718 6532719 6532720 6532721 6532722 6532723 6532724 6532725 6532726 6532727 6532728
+
+Monitor with:
+
+   squeue -j 6532711,6532712,6532713,6532714,6532715,6532716,6532717,6532718,6532719,6532720,6532721,6532722,6532723,6532724,6532725,6532726,6532727,6532728
+
+I'll follow-up and collect logs/early failure evidence for any FAILED states; initial squeue showed several CADETS jobs running and the rest pending.
+
 
 3. **PostgreSQL connection stability** (Jobs 6397059, 6397060, 6397062):
    - Error: `psycopg2.OperationalError: connection to server was closed unexpectedly`
