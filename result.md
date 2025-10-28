@@ -1136,6 +1136,14 @@ Early outcome and fix:
 - Fix applied: Implemented `TASK_FINISHED_FILE` and `set_task_to_done()` in `pidsmaker/config/pipeline.py` and pushed to `supercomputer` branch (commit 13e95ac)
 - Next: resubmit the same batch (Batch 12) now that the import is fixed
 
+## Batch 12 — full resubmission (2025-10-29)
+
+I submitted the full E3 batch (18 jobs) after applying the `set_task_to_done` fix. New Slurm job IDs:
+
+6533404 6533405 6533406 6533407 6533408 6533409 6533410 6533411 6533412 6533413 6533414 6533415 6533416 6533417 6533418 6533419 6533421 6533422
+
+Initial queue state: all jobs are pending (see `squeue`) — I will monitor and collect any failures and add diagnostics to `problem.md` if they occur.
+
 
 3. **PostgreSQL connection stability** (Jobs 6397059, 6397060, 6397062):
    - Error: `psycopg2.OperationalError: connection to server was closed unexpectedly`
