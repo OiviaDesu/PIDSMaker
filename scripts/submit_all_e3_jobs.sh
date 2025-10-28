@@ -132,7 +132,7 @@ PG_BIN_PLACEHOLDER/initdb -D "${PGDATA}" \
     --encoding=UTF8 \
     --locale=en_US.UTF-8 \
     --auth=trust \
-    --username=dunguyen
+    --username=postgres
 
 # Start PostgreSQL
 echo "Starting PostgreSQL on port 55432..."
@@ -152,7 +152,7 @@ done
 # Create database schemas
 echo "Creating databases..."
 for db in DATASET_LC_PLACEHOLDER; do
-    PG_BIN_PLACEHOLDER/createdb -h 127.0.0.1 -p 55432 -U dunguyen "${db}" || echo "Database ${db} may already exist"
+    PG_BIN_PLACEHOLDER/createdb -h 127.0.0.1 -p 55432 -U postgres "${db}" || echo "Database ${db} may already exist"
 done
 
 # Run PIDSMaker inside Apptainer
