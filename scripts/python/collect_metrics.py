@@ -42,6 +42,7 @@ METRIC_PATTERNS = {
 }
 
 JOBNAME_CACHE: Dict[str, str] = {}
+SACCT_CACHE: Dict[str, Dict[str, str]] = {}
 
 
 def get_jobname(jobid: str) -> Optional[str]:
@@ -65,6 +66,38 @@ def get_jobname(jobid: str) -> Optional[str]:
     except Exception:
         return None
     return None
+
+
+def get_sacct_info(jobid: str) -> Dict[str, str]:
+    if jobid in SACCT_CACHE:
+        return SACCT_CACHE[jobid]
+    info: Dict[str, str] = {"state": "", "elapsed": "", "exitcode": ""}
+    try:
+        out = subprocess.check_output(
+            [
+                "sacct",
+                "-j",
+                jobid,
+                "--format=State,Elapsed,ExitCode",
+                "-n",
+                "-P",
+            ],
+            text=True,
+        ).strip().splitlines()
+        # sacct may return multiple lines (job + steps); take the first non-empty
+        for line in out:
+            if not line.strip():
+                continue
+            parts = line.split("|")
+            if len(parts) >= 3:
+                info["state"] = parts[0].strip()
+                info["elapsed"] = parts[1].strip()
+                info["exitcode"] = parts[2].strip()
+                break
+    except Exception:
+        pass
+    SACCT_CACHE[jobid] = info
+    return info
 
 
 def find_log(jobid: str) -> Optional[Path]:
@@ -130,6 +163,7 @@ def main(argv: list[str]) -> int:
             except Exception:
                 txt = ""
         metrics = parse_metrics(txt)
+        sacct = get_sacct_info(jid)
         rows.append(
             {
                 "jobid": jid,
@@ -137,6 +171,9 @@ def main(argv: list[str]) -> int:
                 "model": model or "",
                 "dataset": dataset or "",
                 "config": config or "",
+                "state": sacct.get("state", ""),
+                "elapsed": sacct.get("elapsed", ""),
+                "exitcode": sacct.get("exitcode", ""),
                 **{k: metrics.get(k, "") for k in METRIC_PATTERNS.keys()},
                 "log_file": str(log) if log else "",
             }
@@ -152,6 +189,9 @@ def main(argv: list[str]) -> int:
                 "model",
                 "dataset",
                 "config",
+                "state",
+                "elapsed",
+                "exitcode",
                 *METRIC_PATTERNS.keys(),
                 "log_file",
             ],
