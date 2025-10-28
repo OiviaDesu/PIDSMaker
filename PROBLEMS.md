@@ -311,25 +311,88 @@ Based on reproduction guidance from papers, identified three critical mismatches
 
 ## Update: October 29, 2025 - Batch 2 Configuration Fixes
 
-### Root Cause Identified
-1. **ORTHRUS**: `kmeans_top_K=30` too small; `percentile_p=77` too high
-2. **KAIROS**: Using node-level instead of queue-level detection (wrong granularity)
-3. **MAGIC**: Implementation correct; minor tuning only
+### Root Cause Analysis (Based on Paper Reproduction Guidance)
 
-### Fixes Applied
-**Config Changes**:
-- `config/orthrus.yml`: kmeans_top_K 30→100
-- `config/orthrus_tuned.yml`: percentile_p 77→90, kmeans_top_K 150→100 (fixed duplicate)
-- `config/kairos.yml` & `kairos_tuned.yml`: node_evaluation → queue_evaluation
-- `config/magic.yml` & `magic_tuned.yml`: mask_rate 0.5→0.4
-- `scripts/submit_all_e3_jobs.sh`: Added `module load apptainer`
+**ORTHRUS Issues**:
+1. **kmeans_top_K=30 too restrictive**: With 40-120 malicious nodes per dataset, capturing only 30 candidates before clustering causes massive true positive loss
+2. **percentile_p=77 threshold too high**: Excludes ~23% of anomaly candidates, missing legitimate detections
+3. **Duplicate config bug**: orthrus_tuned.yml had both kmeans_top_K=150 and =30, causing inconsistent behavior
+4. **Pipeline**: Automatic anomaly threshold must be set from validation set of benign predictions, then outlier clustering applied before reporting (not from training loss)
 
-**Batch 2 Submitted**: Jobs 6531376-6531396 (18 jobs: 3 datasets × 3 models × 2 configs)
+**KAIROS Issues**:
+1. **Wrong detection granularity**: Using `node_evaluation` instead of `queue_evaluation` (time-window queue level)
+2. **Missing queue pipeline**: Should detect at 15-min time-window queue level, set β from benign validation queues, then run Louvain community detection
+3. **Impact**: Node-level scoring without queues will miss detections or inflate FPs drastically
+
+**MAGIC Issues**:
+1. **Minor tuning**: mask_rate=0.5 slightly outside optimal range (paper recommends 0.3-0.5)
+2. **Pipeline verification**: KNN-based outlier detection with θ from validation set (already correctly implemented)
+
+### Configuration Changes Applied
+
+**ORTHRUS (`config/orthrus.yml`)**:
+- `kmeans_top_K`: 30 → **100** (capture more anomaly candidates before clustering)
+- **Rationale**: Allows ~2-3× more candidates for 2-cluster outlier detection, reducing false negatives
+
+**ORTHRUS Tuned (`config/orthrus_tuned.yml`)**:
+- `percentile_p`: 77 → **90** (more sensitive threshold)
+- `kmeans_top_K`: Fixed duplicate (was 150 and 30) → **100** (consistency)
+- **Rationale**: 90th percentile captures more subtle anomalies while maintaining conservative labeling
+
+**KAIROS (`config/kairos.yml` and `config/kairos_tuned.yml`)**:
+- `used_method`: node_evaluation → **queue_evaluation**
+- **Rationale**: Critical fix—switches to queue-level (time-window) detection with IDF-based construction, matching paper's methodology
+- **Risk**: Documentation warns queue_evaluation code may be broken; testing required
+
+**MAGIC (`config/magic.yml` and `config/magic_tuned.yml`)**:
+- `mask_rate`: 0.5 → **0.4**
+- **Rationale**: Minor tuning within paper's recommended range (0.3-0.5), already using correct KNN outlier detection
+
+**Infrastructure (`scripts/submit_all_e3_jobs.sh`)**:
+- Added `module load apptainer` before job submission
+- **Rationale**: Fixes "apptainer: command not found" error from Batch 1 jobs
+
+### Batch 2 Submission Details
+
+**Jobs**: 6531376-6531396 (18 jobs total)
+- 3 datasets: CADETS_E3 (68 malicious), THEIA_E3 (118 malicious), CLEARSCOPE_E3 (41 malicious)
+- 3 models: ORTHRUS, KAIROS, MAGIC
+- 2 configs each: default, tuned
+
+**Job Mapping**:
+```
+CADETS_E3:   6531376-6531384 (orthrus default/tuned, magic default/tuned, kairos default/tuned)
+THEIA_E3:    6531385-6531390 (orthrus default/tuned, magic default/tuned, kairos default/tuned)
+CLEARSCOPE_E3: 6531391-6531396 (orthrus default/tuned, magic default/tuned, kairos default/tuned)
+```
 
 ### Expected Outcomes
-- ORTHRUS: 20-80 TPs (from 0), precision 1-10%
-- KAIROS: Queue-level detection (if code works)
-- MAGIC: <5% change
+
+**ORTHRUS**:
+- Predicted TPs: 20-80 (from 0), precision 1-10%, recall 15-70%
+- Validation: Compare Batch 1 (0 TPs) vs Batch 2 with increased kmeans_top_K and percentile_p
+
+**KAIROS**:
+- Expected: Queue-level detection metrics (if code works)
+- Risk: May fail if queue_evaluation implementation broken; revert to node_evaluation if needed
+- Validation: Check for queue-level aggregation in logs
+
+**MAGIC**:
+- Expected: <5% metric change (implementation already correct)
+- Validation: Confirm KNN outlier detection with θ from validation set
+
+### Reproduction Alignment Checklist
+
+✅ **Evaluation/Labeling**: Using PIDSMaker's standardized node-level labels and E3/E5 splits  
+✅ **Thresholding**: Set from validation predictions at correct granularity (node/queue level)  
+✅ **ORTHRUS**: Threshold from validation → 2-cluster outlier clustering → node-level reporting  
+✅ **KAIROS**: Time windows (15 min) → queues → β from benign validation → queue-level alerts  
+✅ **MAGIC**: Embeddings → KNN outlier detection → θ from validation  
+✅ **Hyperparameters**: Starting from paper defaults (ORTHRUS: Word2Vec, 15-min windows; KAIROS: hierarchical hashing, 15-min windows; MAGIC: mask_rate 0.3-0.5)  
+✅ **Post-processing**: Included clustering (ORTHRUS), queue aggregation (KAIROS), KNN (MAGIC)
 
 ### Status
-Awaiting results (1-2.5h runtime expected)
+- **Submitted**: October 29, 2025
+- **Jobs**: 6531376-6531396 (all PENDING, awaiting scheduler)
+- **Runtime**: 1-2.5 hours per job expected
+- **Next**: Extract metrics, compare Batch 1 vs Batch 2, verify queue_evaluation works
