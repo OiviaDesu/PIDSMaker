@@ -67,6 +67,24 @@ def get_default_cfg(args):
     for attr, value in DATABASE_DEFAULT_CONFIG.items():
         setattr(cfg.database, attr, value)
 
+    # Optional database overrides from environment or CLI
+    # Env vars take precedence, then CLI, then defaults
+    db_host_env = os.getenv("PIDSM_DB_HOST") or os.getenv("DB_HOST")
+    db_port_env = os.getenv("PIDSM_DB_PORT") or os.getenv("DB_PORT") or os.getenv("PGPORT")
+
+    db_host_arg = getattr(args, "db_host", None)
+    db_port_arg = getattr(args, "db_port", None)
+
+    if db_host_env:
+        cfg.database.host = db_host_env
+    elif db_host_arg:
+        cfg.database.host = db_host_arg
+
+    if db_port_env:
+        cfg.database.port = str(db_port_env)
+    elif db_port_arg:
+        cfg.database.port = str(db_port_arg)
+
     # Dataset: we simply create variables for all configurations described in the dict
     set_dataset_cfg(cfg, args.dataset)
 
@@ -147,6 +165,20 @@ def get_runtime_required_args(return_unknown_args=False, args=None):
         "--test_mode",
         action="store_true",
         help="Whether to run the framework as in functional tests.",
+    )
+
+    # Database overrides (optional): allow node-local DB host/port to be set from CLI
+    parser.add_argument(
+        "--db_host",
+        type=str,
+        default=None,
+        help="Override database host (defaults to 127.0.0.1).",
+    )
+    parser.add_argument(
+        "--db_port",
+        type=str,
+        default=None,
+        help="Override database port (defaults to 55432).",
     )
 
     # Script-specific args
@@ -754,25 +786,7 @@ def add_cfg_args_to_parser(cfg, parser):
         dtype = str2bool if is_bool else v
         parser.add_argument(f"--{k}", type=dtype)
 
-    return parser
-
-
-def get_darpa_tc_node_feats_from_cfg(cfg):
-    features = cfg.preprocessing.build_graphs.node_label_features
-    return {
-        "subject": list(map(lambda x: x.strip(), features.subject.split(","))),
-        "file": list(map(lambda x: x.strip(), features.file.split(","))),
-        "netflow": list(map(lambda x: x.strip(), features.netflow.split(","))),
-    }
-
-
-TASK_FINISHED_FILE = "done.txt"
-
-
-def set_task_to_done(task_path: str):
-    with open(os.path.join(task_path, TASK_FINISHED_FILE), "w") as f:
-        f.write("Task done")
-    print(f"Task done: {task_path}\n")
+    return cfg
 
 
 def get_days_from_cfg(cfg):

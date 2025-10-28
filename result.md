@@ -1091,6 +1091,33 @@ All tuned job outputs archived at `/fred/oz396/dunguyen/slurm-logs/`:
    - Root cause: PostgreSQL initialized with SQL_ASCII encoding
    - Fix: Added `--encoding=UTF8 --locale=en_US.UTF-8` to initdb commands in THEIA scripts
    - Outcome: Jobs 6401253, 6401328, 6401331 completed successfully
+## Batch 10 status audit (Oct 28–29, 2025)
+
+Summary of the 18-job batch submitted for CADETS_E3, THEIA_E3, and CLEARSCOPE_E3 across Orthrus/Magic/Kairos (job IDs 6532643–6532660):
+
+- Overall outcome: Most jobs FAILED within ~50–70s; the CLEARSCOPE subset completed.
+- Representative failures (6532643, 6532649, 6532651):
+   - Unknown CLI args inside container: `argparse.ArgumentTypeError: Unknown args ['--db_port', '56xxx']`.
+   - Node-local disk exhaustion during pg_restore and tee: `No space left on device` writing to /tmp.
+   - Run log writes failed: `tee: write error: No space left on device`.
+- Representative completed (6532655–6532660): CLEARSCOPE runs finished despite earlier warnings.
+
+Root causes identified:
+- The application didn’t accept `--db_port/--db_host`, causing early exit when the Slurm script forwarded the port.
+- The job staged PostgreSQL data and logs under a small /tmp; restoring multi-GB dumps exhausted node /tmp.
+
+Fixes applied (no resubmission yet):
+- Code: Added optional `--db_port` and `--db_host` in `pidsmaker/config/pipeline.py` and wired them into `get_default_cfg` so cfg.database.{host,port} honor CLI and environment (`PIDSM_DB_HOST`, `PIDSM_DB_PORT`).
+- Script: Updated `scripts/submit_all_e3_jobs.sh` to select node-local scratch first (SLURM_TMPDIR or /scratch/$USER/$JOBID), with fallback away from /tmp, and to keep artifacts/run logs under that scratch path; binds the chosen TMPDIR into the container.
+
+What remains before any resubmit:
+- Verify no other references to /tmp remain in restore/log paths for these jobs.
+- Optional: also pass DB env into container for redundancy (APPTAINERENV_PIDSM_DB_PORT/HOST), though CLI parsing now covers it.
+- Consider trimming high-frequency CSV writes (edge_losses) if disk pressure persists.
+
+Next action when permitted to resubmit:
+- Re-run the same batch with the above fixes; expect removal of the unknown-args failure and avoidance of /tmp exhaustion via node-local scratch usage.
+
 
 3. **PostgreSQL connection stability** (Jobs 6397059, 6397060, 6397062):
    - Error: `psycopg2.OperationalError: connection to server was closed unexpectedly`
