@@ -1,0 +1,158 @@
+#!/bin/bash
+#SBATCH --job-name=orthrus_tuned_cadets_e3_ctn
+#SBATCH --partition=milan-gpu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --gres=gpu:1
+#SBATCH --mem=32GB
+#SBATCH --tmp=50GB
+#SBATCH --time=01:00:00
+#SBATCH --output=/fred/oz396/dunguyen/slurm-logs/orthrus_tuned_cadets_e3_ctn_%j.out
+#SBATCH --error=/fred/oz396/dunguyen/slurm-logs/orthrus_tuned_cadets_e3_ctn_%j.err
+
+# Orthrus Tuned on CADETS_E3 - Validation Run
+# Expected: ~25 min, 25-45 TP, AUC 0.85-0.88, break 0 TP deadlock
+# Config changes: percentile threshold (p=77), kmeans_top_K=150, 48-dim embeddings, 64-dim hidden
+
+echo "============================================"
+echo "Job started at: $(date)"
+echo "Job ID: $SLURM_JOB_ID"
+echo "Node: $SLURM_NODELIST"
+echo "Config: orthrus_tuned.yml (CADETS_E3)"
+echo "Expected runtime: ~25 minutes"
+echo "============================================"
+
+# Heartbeat function
+heartbeat() {
+    while true; do
+        echo "[$(date +'%H:%M:%S')] Heartbeat: Job $SLURM_JOB_ID still running on $(hostname)"
+        sleep 300  # Every 5 minutes
+    done
+}
+heartbeat &
+HEARTBEAT_PID=$!
+
+# Cleanup on exit
+cleanup() {
+    echo "Cleaning up..."
+    kill $HEARTBEAT_PID 2>/dev/null
+    kill $MONITOR_PID 2>/dev/null
+    
+    # Stop PostgreSQL
+    if [ -n "$PGDATA" ] && [ -d "$PGDATA" ]; then
+        echo "Stopping PostgreSQL..."
+        "$PG_BIN/pg_ctl" -D "$PGDATA" stop -m fast
+    fi
+    
+    # Package artifacts
+    if [ -d "/tmp/pidsmaker_${SLURM_JOB_ID}" ]; then
+        echo "Packaging artifacts..."
+        cd /tmp
+        tar -czf "/fred/oz396/dunguyen/slurm-logs/orthrus_tuned_cadets_e3_ctn_${SLURM_JOB_ID}.tar.gz" \
+            "pidsmaker_${SLURM_JOB_ID}/" 2>/dev/null || echo "Warning: tar packaging had issues"
+    fi
+    
+    echo "Job ended at: $(date)"
+}
+trap cleanup EXIT INT TERM
+
+# GPU monitoring
+nvidia-smi --query-gpu=timestamp,name,temperature.gpu,utilization.gpu,utilization.memory,memory.used,memory.total --format=csv -l 60 > /tmp/gpu_stats_${SLURM_JOB_ID}.log &
+MONITOR_PID=$!
+
+# Setup environment
+export WORK_DIR="/tmp/pidsmaker_${SLURM_JOB_ID}"
+mkdir -p "$WORK_DIR"
+cd "$WORK_DIR" || exit 1
+
+# Setup PostgreSQL
+export PG_BIN="/fred/oz396/dunguyen/.conda/envs/pg17/bin"
+export PGDATA="$WORK_DIR/pgdata"
+export PGPORT=55432
+export PGHOST=localhost
+export PGUSER=$USER
+export PGDATABASE=postgres
+
+echo "Initializing PostgreSQL..."
+
+"$PG_BIN/initdb" -D "$PGDATA" --auth=trust --username="$USER"
+cat >> "$PGDATA/postgresql.conf" << EOF
+unix_socket_directories = '$WORK_DIR'
+listen_addresses = 'localhost'
+port = $PGPORT
+max_connections = 100
+shared_buffers = 256MB
+work_mem = 64MB
+maintenance_work_mem = 256MB
+wal_level = minimal
+max_wal_senders = 0
+fsync = off
+synchronous_commit = off
+full_page_writes = off
+EOF
+
+"$PG_BIN/pg_ctl" -D "$PGDATA" -l "$WORK_DIR/postgres.log" start
+sleep 5
+
+if ! "$PG_BIN/pg_isready" -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" > /dev/null 2>&1; then
+    echo "ERROR: PostgreSQL failed to start"
+    cat "$WORK_DIR/postgres.log"
+    exit 1
+fi
+
+echo "PostgreSQL started successfully on port $PGPORT"
+
+# Create postgres role and databases
+"$PG_BIN/psql" -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres << 'EOSQL'
+CREATE ROLE postgres WITH SUPERUSER LOGIN;
+CREATE DATABASE cadets_e3;
+EOSQL
+
+echo "Database created: cadets_e3"
+echo "Restoring database from dump..."
+"$PG_BIN/pg_restore" -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d cadets_e3 /fred/oz396/dunguyen/data/cadets_e3.dump
+echo "Database restored successfully"
+
+# Load Apptainer module
+module -q load apptainer
+
+# Setup Apptainer bindings
+export APPTAINER_BIND="/home/$USER:/home/$USER,/fred:/fred,$WORK_DIR:$WORK_DIR"
+export CONTAINER_IMAGE="/fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif"
+
+# Run PIDSMaker with tuned config
+echo "============================================"
+echo "Running Orthrus Tuned on CADETS_E3..."
+echo "Config: config/orthrus_tuned.yml"
+echo "Key optimizations:"
+echo "  - Percentile threshold (p=77)"
+echo "  - kmeans enabled (top_K=150)"
+echo "  - 48-dim embeddings, 64-dim hidden"
+echo "  - 2x batch size, 2x LR, dropout 0.1"
+echo "============================================"
+
+apptainer exec --nv "$CONTAINER_IMAGE" bash -c "
+export PGHOST='$PGHOST'
+export PGPORT='$PGPORT'
+export PGUSER='$PGUSER'
+export PGDATABASE='cadets_e3'
+cd /home/$USER/git/PIDSMaker
+python -m pidsmaker.main \
+    orthrus_tuned CADETS_E3 \
+    --artifact_dir_in_container '$WORK_DIR/artifacts' \
+    2>&1
+"
+
+PIDSMAKER_EXIT=$?
+
+echo "============================================"
+echo "PIDSMaker exit code: $PIDSMAKER_EXIT"
+echo "Artifacts location: $WORK_DIR/artifacts"
+echo "GPU stats: /tmp/gpu_stats_${SLURM_JOB_ID}.log"
+echo "============================================"
+
+# Copy GPU stats to work directory
+cp /tmp/gpu_stats_${SLURM_JOB_ID}.log "$WORK_DIR/" 2>/dev/null
+
+exit $PIDSMAKER_EXIT

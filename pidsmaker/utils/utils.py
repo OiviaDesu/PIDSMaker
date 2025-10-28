@@ -10,15 +10,36 @@ from datetime import datetime
 from time import mktime
 
 import networkx as nx
-import nltk
 import numpy as np
 import psycopg2
 import pytz
 import torch
-from nltk.tokenize import word_tokenize
 from tqdm import tqdm
+from typing import List
 
-nltk.download("punkt", quiet=True)
+# Avoid network calls for NLTK data on HPC. Provide a robust offline fallback tokenizer.
+try:
+    from nltk.tokenize import word_tokenize as _nltk_word_tokenize  # optional dependency
+except Exception:
+    _nltk_word_tokenize = None
+
+def safe_word_tokenize(text: str) -> List[str]:
+    """
+    Tokenize text. Try NLTK's word_tokenize when punkt is available; otherwise fall back to a
+    simple regex-based tokenizer that splits on words and keeps punctuation tokens.
+    This avoids runtime downloads in offline HPC environments.
+    """
+    if _nltk_word_tokenize is not None:
+        try:
+            return _nltk_word_tokenize(text)
+        except LookupError:
+            # punkt not available; fall back
+            pass
+        except Exception:
+            # Any unexpected tokenizer error; fall back
+            pass
+    # Regex fallback: sequences of word chars or single non-space punctuation
+    return re.findall(r"[A-Za-z0-9_]+|[^\sA-Za-z0-9_]", text)
 
 from pidsmaker.config import update_cfg_for_multi_dataset
 
@@ -323,17 +344,17 @@ def remove_underscore_keys(data, keys_to_keep=[], keys_to_rm=[]):
 
 def tokenize_subject(sentence: str):
     new_sentence = re.sub(r"\\+", "/", sentence)
-    return word_tokenize(new_sentence.replace("/", " / "))
+    return safe_word_tokenize(new_sentence.replace("/", " / "))
     # return word_tokenize(sentence.replace('/',' ').replace('=',' = ').replace(':',' : '))
 
 
 def tokenize_file(sentence: str):
     new_sentence = re.sub(r"\\+", "/", sentence)
-    return word_tokenize(new_sentence.replace("/", " / "))
+    return safe_word_tokenize(new_sentence.replace("/", " / "))
 
 
 def tokenize_netflow(sentence: str):
-    return word_tokenize(sentence.replace(":", " : ").replace(".", " . "))
+    return safe_word_tokenize(sentence.replace(":", " : ").replace(".", " . "))
 
 
 def tokenize_label(node_label, node_type):
@@ -350,7 +371,7 @@ def tokenize_label(node_label, node_type):
 
 def tokenize_arbitrary_label(sentence):
     new_sentence = re.sub(r"\\+", "/", sentence)
-    return word_tokenize(new_sentence.replace("/", " / ").replace(":", " : ").replace(".", " . "))
+    return safe_word_tokenize(new_sentence.replace("/", " / ").replace(":", " : ").replace(".", " . "))
 
 
 def log(msg: str, return_line=False, pre_return_line=False, *args, **kwargs):

@@ -1,14 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=orthrus_default_cadets_e3
+#SBATCH --job-name=orthrus_tuned_theia_e3
 #SBATCH --partition=milan-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=48GB
+#SBATCH --mem=64GB
 #SBATCH --gres=gpu:1
-#SBATCH --time=02:00:00
-#SBATCH --output=/fred/oz396/dunguyen/slurm-logs/orthrus_default_cadets_e3_ctn_%j.out
-#SBATCH --error=/fred/oz396/dunguyen/slurm-logs/orthrus_default_cadets_e3_ctn_%j.err
+#SBATCH --time=02:30:00
+#SBATCH --output=/fred/oz396/dunguyen/slurm-logs/orthrus_tuned_theia_e3_ctn_%j.out
+#SBATCH --error=/fred/oz396/dunguyen/slurm-logs/orthrus_tuned_theia_e3_ctn_%j.err
 
 set -x
 set -e
@@ -36,7 +36,7 @@ cleanup() {
     fi
     # Archive artifacts to shared storage
     cd "${TMPDIR}"
-    tar -czf "/fred/oz396/dunguyen/slurm-logs/orthrus_default_cadets_e3_ctn_${JOB_ID}.tar.gz" artifacts/ *.log 2>/dev/null || true
+    tar -czf "/fred/oz396/dunguyen/slurm-logs/orthrus_tuned_theia_e3_ctn_${JOB_ID}.tar.gz" artifacts/ *.log 2>/dev/null || true
     cd /
     rm -rf "${TMPDIR}"
 }
@@ -67,7 +67,7 @@ done
 
 # Create database schemas
 echo "Creating databases..."
-for db in cadets_e3; do
+for db in theia_e3; do
     /fred/oz396/dunguyen/.conda/envs/pg17/bin/createdb -h 127.0.0.1 -p 55432 -U dunguyen "${db}" || echo "Database ${db} may already exist"
 done
 
@@ -78,11 +78,11 @@ apptainer exec --nv \
     -B "${TMPDIR}:${TMPDIR}" \
     /fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif \
     bash -lc "cd /opt/PIDSMaker && \
-    python -m pidsmaker.main orthrus CADETS_E3 \
+    python -m pidsmaker.main orthrus_tuned THEIA_E3 \
         --artifact_dir_in_container ${ARTIFACT_DIR} \
         --restart_from_scratch \
         --force_restart=build_graphs \
-        --wandb --project pidsmaker-cadets \
+        --wandb --project pidsmaker-theia \
         2>&1 | tee ${RUN_LOG}"
 
 echo "Job completed successfully."

@@ -201,14 +201,63 @@ This file records every significant command used to set up and run PIDSMaker (Or
 - Fallback to `${SLURM_TMPDIR}` / `${TMPDIR}` / `/tmp`
 - Requested larger node-local tmp: added `#SBATCH --tmp=50G` to scripts
 
+## Tuned Configuration Job Submissions (Oct 22-23, 2025)
+
+### Third Round - Corrected Dataset Casing (PENDING)
+- **Status:** All PENDING (Priority), awaiting scheduler
+- **Submitted:** Oct 23, 2025
+- **Fixes:** Uppercase dataset names (CADETS_E3, THEIA_E3), positional CLI args, NLTK offline
+
+```bash
+sbatch scripts/run_orthrus_tuned_cadets_e3_apptainer.slurm  # JobID 6396666
+sbatch scripts/run_magic_tuned_cadets_e3_apptainer.slurm    # JobID 6396667
+sbatch scripts/run_kairos_tuned_cadets_e3_apptainer.slurm   # JobID 6396668
+sbatch scripts/run_orthrus_tuned_theia_e3_apptainer.slurm   # JobID 6396669
+sbatch scripts/run_magic_tuned_theia_e3_apptainer.slurm     # JobID 6396670
+sbatch scripts/run_kairos_tuned_theia_e3_apptainer.slurm    # JobID 6396671
+```
+
+**Resources:**
+- CADETS_E3: 2 CPUs, 32GB RAM, 1h limit
+- THEIA_E3: 2 CPUs, 48GB RAM, 1.5h limit
+- All: milan-gpu partition, 1 GPU, node-local PostgreSQL
+
+**Check status:**
+```bash
+squeue -j 6396666,6396667,6396668,6396669,6396670,6396671
+```
+
+### Second Round - Dataset Case Mismatch (FAILED)
+- **Status:** All FAILED with ValueError: Unknown dataset cadets_e3
+- **Submitted:** Oct 22, 2025 16:32-16:38
+- **Failed after:** ~26-28 seconds
+- **Issue:** Scripts passed lowercase `cadets_e3`/`theia_e3` but config expects uppercase
+
+```bash
+# Jobs 6379295, 6379296, 6379297, 6379298, 6379301, 6379303
+sacct -j 6379295,6379296,6379297,6379298,6379301,6379303 --format=JobID,State,ExitCode,Elapsed,NodeList
+# All showed: FAILED 1:0 after ~27s on gina7
+```
+
+### First Round - CLI Argument Errors (FAILED)
+- **Status:** All FAILED with argparse errors
+- **Submitted:** Oct 22, 2025
+- **Failed after:** ~26-30 seconds
+- **Issue:** Used `--config`, `--dataset`, `--output_dir` flags instead of positional args
+
+```bash
+# Jobs 6378640-6378645
+# Error: argparse.ArgumentTypeError: Unknown args ['--config', '--dataset', '--output_dir', ...]
+```
+
 ## Recent submissions and checks
 
 - CPU job with node-local PG and W&B offline:
-  - `sbatch scripts/run_orthus_cadets_e3.slurm` → JobID 6356672 (failed: /jobfs perms)
+  - `sbatch scripts/run_orthus_cadets_e3.slurm` ? JobID 6356672 (failed: /jobfs perms)
   - Fixed node-local base path to use TMPDIR
-  - `sbatch scripts/run_orthus_cadets_e3.slurm` → JobID 6356774 (failed: /tmp no space)
-  - Added `--tmp=50G`; resubmitted → JobID 6356875 (PENDING Priority)
-  - Fixed lmod PS1 with set -u; resubmitted → JobID 6356903 (RUNNING then FAILED due to W&B online timeout)
+  - `sbatch scripts/run_orthus_cadets_e3.slurm` ? JobID 6356774 (failed: /tmp no space)
+  - Added `--tmp=50G`; resubmitted ? JobID 6356875 (PENDING Priority)
+  - Fixed lmod PS1 with set -u; resubmitted ? JobID 6356903 (RUNNING then FAILED due to W&B online timeout)
   - Reverted W&B to offline in `.env` for next submission
 
 - GPU jobs with progressive memory increases to resolve TGN OOM:
@@ -333,3 +382,35 @@ squeue -j 6351715 -o "%i %T %P %R %M %l %D %C %m %b %N"
 sbatch -p skylake-gpu --mem=32G -c 4 --time=12:00:00 scripts/run_orthus_cadets_e3_apptainer_skylake.slurm
 squeue -j 6351715,6351807 -o "%i %T %P %R %M %l %D %C %m %b %N"
 scancel 6351715 6351807 6351818 6351819 6351820 6351824
+
+---
+
+## October 29, 2025: Reproduction-Aligned Batch Submission
+
+### Configuration Updates
+```bash
+# Updated 6 config files based on paper methodologies
+# ORTHRUS: kmeans_top_K (30→100), percentile_p (77→90)
+# KAIROS: used_method (node_evaluation → queue_evaluation)
+# MAGIC: mask_rate (0.5→0.4)
+```
+
+### Batch 2 Submission (18 jobs)
+
+---
+
+## October 29, 2025: Batch 2 Submission
+
+### Submission
+```bash
+cd /home/dunguyen/git/PIDSMaker
+bash scripts/submit_all_e3_jobs.sh
+# Jobs: 6531376-6531396 (18 jobs)
+```
+
+### Monitor
+```bash
+squeue -j 6531376-6531396
+sacct -j 6531376-6531396 --format=JobID,JobName%30,State,Elapsed,MaxRSS
+tail -f /fred/oz396/dunguyen/slurm-logs/orthrus_default_cadets_e3_ctn_6531376.out
+```

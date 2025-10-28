@@ -575,6 +575,36 @@ Each archive contains artifacts/, wandb/, gpu_stats.log, and standard output cap
 
 ---
 
+## CLEARSCOPE_E3 on OzSTAR (Oct 24, 2025)
+
+### Overview
+ClearScope E3 is a single-attack dataset (41 malicious nodes). Our evaluation includes both thresholded detections (per-node TP/FP at a chosen threshold) and a ranking-style metric used in this repo: tps_if_all_attacks_detected, which stops counting once at least one node from each attack is detected. On single-attack datasets, this ranking metric can be zero even when thresholding shows some malicious nodes flagged, if many benign nodes rank above the first malicious.
+
+### Run Summary (tuned + recent defaults)
+
+| Job ID | Model | Config | Final threshold | percent_detected_attacks | tps_if_all_attacks_detected | fps_if_all_attacks_detected | adp_score | discrimination | Status |
+|--------|-------|--------|-----------------|---------------------------|-----------------------------|-----------------------------|-----------|----------------|--------|
+| 6418143 | Orthrus | orthrus_tuned (p≈77) | 1.177 | 0.0 | 0 | 300 | 0.003 | -0.4726 | COMPLETED |
+| 6418165 | Magic | magic_tuned (magic) | 1.755 | 1.0 | 0 | 142 | 0.007 | -0.2217 | COMPLETED |
+| 6418166 | Kairos | kairos_tuned (p≈78) | 1.161 | 1.0 | 0 | 820 | 0.003 | -0.2656 | COMPLETED |
+| 6418032 | Kairos | kairos_default | — | — | — | — | — | — | FAILED |
+| 6429299 | Kairos | kairos_default (resub) | — | — | — | — | — | — | FAILED |
+
+Notes:
+- Orthrus tuned: All malicious nodes shown as not detected at threshold (❌). Ranking-based metric also zero; FPs at the “all-attacks-detected” cut are ~300.
+- Magic tuned: Thresholded logs show several malicious nodes detected (✅), but ranking metric is still 0 TPs because many benign nodes score higher than the first malicious; percent_detected_attacks=1.0 indicates at least one attack was covered at threshold.
+- Kairos tuned: Same pattern as Magic—TPs present at threshold (✅ in logs), but tps_if_all_attacks_detected=0 due to ranking order; percent_detected_attacks=1.0; higher FP count (820) at the all-attacks-detected cutoff.
+
+### Interpretation for ClearScope
+- The ranking metric is brittle for single-attack datasets; it can understate detection when benign nodes dominate the top of the score list.
+- Orthrus struggles on ClearScope with percentile ~77 (final thr 1.177). Magic and Kairos flag malicious nodes at their chosen thresholds but still rank many benign instances higher, yielding 0 on the ranking-style metric.
+- For ClearScope reporting, prefer single-attack-friendly summaries like TP@K, AP, or thresholded confusion matrices in addition to the existing ranking metric.
+
+### Next steps for ClearScope (optional)
+1. Export TP@K (K ∈ {1,5,10,50,100}) and Average Precision for these runs to complement the ranking metric.
+2. Try lower percentiles for Orthrus (p=60–70) or fixed thresholds (e.g., 0.4–0.8) to surface thresholded TPs.
+3. Consider per-time-window percentile normalization to reduce benign head-of-list dominance.
+
 ## Tuned Jobs Pending Execution (Oct 23, 2025)
 
 ### Submission Status: Third Round (6396666-6396671)

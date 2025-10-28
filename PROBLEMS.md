@@ -2,7 +2,38 @@
 
 This document tracks all significant problems encountered while running PIDSMaker/Orthrus on OzSTAR, along with their root causes and solutions.
 
-## Problem 1: Zero True Positives Detection (Critical, unresolved)
+## Current Status: Tuned Jobs Awaiting Execution (Oct 23, 2025)
+
+### Job Submission: Third Round (6396666-6396671)
+
+**Status:** All 6 jobs PENDING (Priority) - awaiting scheduler assignment
+
+**Jobs:**
+- 6396666: orthrus_tuned on CADETS_E3 (1h limit, 32GB RAM)
+- 6396667: magic_tuned on CADETS_E3 (1h limit, 32GB RAM)
+- 6396668: kairos_tuned on CADETS_E3 (1h limit, 32GB RAM)
+- 6396669: orthrus_tuned on THEIA_E3 (1.5h limit, 48GB RAM)
+- 6396670: magic_tuned on THEIA_E3 (1.5h limit, 48GB RAM)
+- 6396671: kairos_tuned on THEIA_E3 (1.5h limit, 48GB RAM)
+
+**Fixes Applied:**
+1. CLI invocation: Changed to positional args `python -m pidsmaker.main {model}_tuned {DATASET} --artifact_dir_in_container`
+2. Dataset casing: Changed to uppercase `CADETS_E3` and `THEIA_E3`
+3. NLTK offline: Removed network downloads, added regex fallback tokenizer
+4. Percentile thresholds: Implemented in codebase (p=78 Kairos, p=92 Magic, p=77 Orthrus)
+
+**Previous Failures:**
+- First round (6378640-6378645): CLI argument errors (used --config/--dataset flags instead of positional args)
+- Second round (6379295-6379303): Dataset case mismatch (lowercase cadets_e3 vs uppercase CADETS_E3)
+
+**Next Steps:**
+- Monitor queue for job start
+- Extract metrics once completed
+- Update result.md with tuned outcomes
+
+---
+
+## Problem 1: Zero True Positives Detection (Critical, addressed in tuned configs)
 
 ### Status
 **UNRESOLVED** - Affects jobs 6357922 and 6358952
@@ -85,95 +116,53 @@ With threshold=0.536, nodes with loss < 0.536 are classified as normal, causing 
 
 ---
 
-## Problem 2: PostgreSQL Not in Container (Resolved)
+## Problem 2: CLI Argument Errors (Resolved)
 
 ### Status
-**RESOLVED** - Used conda environment instead
+**RESOLVED** - Jobs 6378640-6378645, 6379295-6379303
 
-### Symptoms (Job 6358645)
-```
-[Tue Oct 21 01:45:33 AEDT 2025] PostgreSQL start failed, checking log...
-No log file found
-```
+### Symptoms
+- First batch (6378640-6378645): `argparse.ArgumentTypeError: Unknown args ['--config', '--dataset', '--output_dir', ...]`
+- Second batch (6379295-6379303): `ValueError: Unknown dataset cadets_e3. Available datasets are dict_keys(['THEIA_E5', 'THEIA_E3', 'CADETS_E5', 'CADETS_E3', ...])`
 
 ### Root Cause
-Container image `pidsmaker_cuda117.sif` doesn't include PostgreSQL binaries (`pg_ctl`, `pg_isready`, etc.)
-
-### Attempted Solutions
-1. Attempt: Tried to start PostgreSQL from container - failed (binary not found)
-2. Attempt: Looked for system PostgreSQL modules - failed (modules unavailable on OzSTAR)
+1. pidsmaker.main expects positional arguments (model, dataset), not flags like `--config` and `--dataset`
+2. Dataset names are case-sensitive; config expects uppercase `CADETS_E3` and `THEIA_E3`
 
 ### Solution
-Installed PostgreSQL 17 in dedicated conda environment:
-```bash
-rm -rf /fred/oz396/dunguyen/.conda/envs/pg17
-mamba create -n pg17 postgresql=17 -c conda-forge -y
-```
-
-Updated Slurm script to use:
-```bash
-PG_BIN="/fred/oz396/dunguyen/.conda/envs/pg17/bin"
-"${PG_BIN}/pg_ctl" -D "${NODE_PGDATA}" -l "${NODE_PGLOG}" -o "-p 55432" start
-```
+1. Fixed CLI invocation: changed to `python -m pidsmaker.main {model} {DATASET} --artifact_dir_in_container '$WORK_DIR/artifacts'`
+2. Fixed dataset casing: `cadets_e3` → `CADETS_E3`, `theia_e3` → `THEIA_E3`
 
 ### Impact
-**MODERATE** - Blocked job execution until resolved
+**HIGH** - Blocked two rounds of job submissions; resolved in third round (6396666-6396671)
 
 ---
 
-## Problem 3: Invalid Threshold Method Configuration (Resolved)
+## Problem 3: NLTK Offline Compatibility (Resolved)
 
 ### Status
-**RESOLVED**
-
-### Symptoms (Job 6358565)
-```
-ValueError: Invalid argument threshold_method with value best_val_loss. 
-Expected values: ['max_val_loss', 'mean_val_loss', 'threatrace', 'magic', 'flash', 'nodlink']
-```
-
-### Root Cause
-Incorrectly assumed `best_val_loss` was a valid threshold method. Valid methods are hardcoded in `pidsmaker/config/config.py`:
-```python
-THRESHOLD_METHODS = ["max_val_loss", "mean_val_loss", "threatrace", "magic", "flash", "nodlink"]
-```
-
-### Solution
-Changed `config/orthrus_tuned.yml`:
-```yaml
-threshold_method: mean_val_loss  # Changed from best_val_loss
-```
-
-### Impact
-**LOW** - Quick configuration fix
-
----
-
-## Problem 4: PostgreSQL Data Directory Already Exists (Resolved)
-
-### Status
-**RESOLVED**
+**RESOLVED** - Fixed for Apptainer offline environment
 
 ### Symptoms
 ```
-CondaValueError: prefix already exists: /fred/oz396/dunguyen/.conda/envs/pg17
+[nltk_data] Error loading punkt: <urlopen error [Errno -3] Temporary failure in name resolution>
 ```
 
 ### Root Cause
-Previously created incomplete pg17 environment (directory exists but PostgreSQL not installed)
+Apptainer compute nodes have no internet access; `nltk.download("punkt")` attempted network downloads at runtime
 
 ### Solution
-```bash
-rm -rf /fred/oz396/dunguyen/.conda/envs/pg17
-mamba create -n pg17 postgresql=17 -c conda-forge -y
-```
+- Removed unconditional `import nltk` and `nltk.download("punkt")` from pidsmaker/utils/utils.py
+- Added guarded optional import with fallback: `from nltk.tokenize import word_tokenize as _nltk_word_tokenize`
+- Implemented `safe_word_tokenize()` function with regex fallback: `r"[A-Za-z0-9_]+|[^\sA-Za-z0-9_]"`
+- Updated all tokenization functions to use safe_word_tokenize
 
 ### Impact
-**LOW** - Quick manual cleanup
+**MODERATE** - Ensures offline compatibility; no runtime errors in Apptainer
 
 ---
 
-## Problem 5: Slow Training Time (Partially Resolved)
+## Problem 4: Slow Training Time (Partially Resolved)
 
 ### Status
 **PARTIALLY RESOLVED** - Speed improved, but detection broken
@@ -215,254 +204,7 @@ tgn_neighbor_size: 20 # Was 10 (restored to default)
 
 ---
 
-## Problem 6: Milan-GPU Partition Temporarily Down
 
-### Status
-**TRANSIENT** - Partition came back online
-
-### Symptoms (Job 6358595 queued)
-```
-JOBID   PARTITION    NAME     USER ST  TIME  TIME_LEFT  NODES NODELIST(REASON)
-6358595 milan-gpu orthus_... dunguyen PD   0:00    2:00:00  1 (PartitionDown)
-```
-
-### Root Cause
-Cluster administrators disabled milan-gpu partition temporarily
-
-### Solution
-Waited for partition to come back online (~15 minutes)
-
-### Impact
-**LOW** - Temporary delay
-
----
-
-## Problem 7: PostgreSQL Dump Version Mismatch (Resolved)
-
-### Status
-**RESOLVED** - PostgreSQL 17 toolchain installed
-
-### Symptoms
-- `pg_restore: unsupported version (1.16) in file header`
-- Restores failed when using older PostgreSQL clients
-
-### Root Cause
-Dataset dump created with newer PostgreSQL (v16+) while local environment used older binaries
-
-### Solution
-- Installed PostgreSQL 17 in dedicated conda environment
-- Initialized cluster under `/fred/oz396/dunguyen/pg/data`
-- Restored `cadets_e3` using PG17 tools without errors
-
-### Impact
-**HIGH** - Blocked database restore until client/server versions matched
-
----
-
-## Problem 8: Disk Quota Limits During CUDA Installs (Resolved)
-
-### Status
-**RESOLVED** - Containerized dependencies
-
-### Symptoms
-- `no space left on device` when installing CUDA-enabled PyTorch / PyG wheels via conda or pip
-- Large caches accumulated under `/home` and `/fred`
-
-### Root Cause
-Project quotas on `/home` and `/fred` insufficient for repeated GPU wheel installs and caches
-
-### Solution
-- Avoided per-node installs; built Apptainer SIF with prepackaged dependencies stored on `/fred`
-- Redirected Apptainer cache and tmp directories to `/fred/oz396/dunguyen/.apptainer/{cache,tmp}`
-
-### Impact
-**MODERATE** - Prevented environment setup during jobs
-
----
-
-## Problem 9: Compute Nodes Lack Outbound Network (Known Limitation)
-
-### Status
-**KNOWN LIMITATION** - Must plan around network restrictions
-
-### Symptoms
-- pip and conda failed during job runtime with connection errors
-- Apptainer builds attempted to pull base images and stalled
-
-### Root Cause
-OzSTAR compute nodes are intentionally isolated from the public internet
-
-### Solution
-- Build Apptainer images on login nodes with outbound access
-- Bundle all Python dependencies (Torch, PyG, NLTK data) inside the container
-- Documented workflow so no network calls happen during jobs
-
-### Impact
-**HIGH** - Any workflow assuming live package installs will fail
-
----
-
-## Problem 10: PyTorch and PyG CUDA Compatibility (Resolved)
-
-### Status
-**RESOLVED** - Standardized versions inside container
-
-### Symptoms
-- Import errors and binary incompatibilities between Torch, Torchvision, and PyG wheels
-
-### Root Cause
-Version mismatches when mixing module-provided Torch with downloaded PyG wheels
-
-### Solution
-- Standardized on `torch==1.13.1+cu117` and `pyg==2.5.3`
-- Baked the compatible stack into the Apptainer image
-
-### Impact
-**MODERATE** - Blocked model start-up until resolved
-
----
-
-## Problem 11: Slurm ExitCode 0:53 Failures (Resolved)
-
-### Status
-**RESOLVED** - Prebuilt container and resilient logging
-
-### Symptoms
-- Jobs exited within seconds with `FAILED 0:53`
-- No stdout/err captured on `/fred`
-
-### Root Cause
-Apptainer attempted to build or pull images on compute nodes and wrote to unwritable `/tmp` locations; `/fred` not always available at job launch
-
-### Solution
-- Prebuilt SIF stored on `/fred`
-- Set Apptainer cache/tmp to project-owned paths
-- Routed Slurm stdout/err to `~/slurm-logs` to avoid early write failures
-
-### Impact
-**HIGH** - Jobs failed immediately before training
-
----
-
-## Problem 12: Module PyTorch with Node-Local Virtualenv (Resolved)
-
-### Status
-**RESOLVED**
-
-### Symptoms
-- pip installs for PyG wheels failed during job startup because packages were not cached
-
-### Root Cause
-Compute nodes cannot reach package mirrors, so wheel downloads timed out
-
-### Solution
-- Abandoned node-local virtualenv approach in favor of self-contained Apptainer image
-
-### Impact
-**LOW** - Early experimentation path retired
-
----
-
-## Problem 13: Apptainer Build on Compute Nodes (Resolved)
-
-### Status
-**RESOLVED**
-
-### Symptoms
-- `FATAL: conveyor failed to get: pinging container registry ... connection refused`
-
-### Root Cause
-Attempted to build Apptainer image inside Slurm job without network access
-
-### Solution
-- Build SIF on login node and reuse artifact for jobs
-
-### Impact
-**LOW** - Clarified build process
-
----
-
-## Problem 14: GPU Visibility Confusion on Login Nodes (Clarified)
-
-### Status
-**CLARIFIED**
-
-### Symptoms
-- `torch.cuda.is_available()` returned `False` on login nodes, causing concern about CUDA availability
-
-### Root Cause
-Login nodes lack GPUs and `--nv` flag not used during ad-hoc tests
-
-### Solution
-- Documented expectation that CUDA is only available inside jobs with `apptainer exec --nv`
-- Added preflight CUDA check inside job scripts to print availability
-
-### Impact
-**LOW** - Avoided false troubleshooting efforts
-
----
-
-## Problem 15: Weights & Biases Initialization Mode (Resolved)
-
-### Status
-**RESOLVED** - Honor offline mode and `.env` configuration
-
-### Symptoms
-- `wandb.init` timeout when `--wandb` flag used on compute nodes
-- Timeout persisted even after setting `WANDB_MODE=offline`
-
-### Root Cause
-Application forced `mode="online"` when CLI flag present, conflicting with network-restricted environment
-
-### Solution
-- Patched `pidsmaker/main.py` to respect `WANDB_MODE`
-- Documented workflow: run jobs in offline mode, then execute `wandb sync` from login node if needed
-
-### Impact
-**MODERATE** - Jobs failed until patched
-
----
-
-## Problem 16: Path Bindings and Artifact Locations (Resolved)
-
-### Status
-**RESOLVED**
-
-### Symptoms
-- Confusion over where logs and artifacts were written inside the container
-
-### Root Cause
-Inconsistent bind mounts between `/home` workspace and `/fred` storage
-
-### Solution
-- Standardized Apptainer binds:
-   - `-B /fred/oz396/dunguyen:/fred/oz396/dunguyen`
-   - `-B /home/dunguyen/git/PIDSMaker:/opt/PIDSMaker`
-- Defined artifact directory `/fred/oz396/dunguyen/pids_artifacts` and logs under `/fred/oz396/dunguyen/pids_logs`
-
-### Impact
-**LOW** - Improved reproducibility and debugging
-
----
-
-## Problem 17: PostgreSQL Service Management Within Jobs (Resolved)
-
-### Status
-**RESOLVED**
-
-### Symptoms
-- Jobs occasionally started without PostgreSQL running, causing connection failures
-
-### Root Cause
-Node-local PostgreSQL required explicit startup when job began
-
-### Solution
-- Slurm scripts now detect existing PG instance and start `pg_ctl` if required using data directory on `/fred`
-
-### Impact
-**MODERATE** - Prevented intermittent job failures
-
----
 
 ## Problem 18: /fred Inode Quota Exhaustion (Critical, unresolved)
 
@@ -490,123 +232,7 @@ Project members collectively exhausted inode quota, primarily due to large conda
 
 ---
 
-## Problem 19: Node-Local Path Capacity for PGDATA (Resolved)
 
-### Status
-**RESOLVED**
-
-### Symptoms
-- `Permission denied` when creating node-local working directory under `/jobfs`
-- `rsync: write failed ... No space left on device` while copying PGDATA to `/tmp`
-
-### Root Cause
-- Some node-local paths were not writable or had insufficient space under default tmp directories
-
-### Solution
-- Switched to `${SLURM_TMPDIR:-${TMPDIR:-/tmp}}` and requested `--tmp=50G`
-- Ensured node-local PostgreSQL runs from adequately sized temporary storage
-
-### Impact
-**MODERATE** - Prevented database initialization until resolved
-
----
-
-## Problem 20: lmod PS1 Unbound Variable Under `set -u` (Resolved)
-
-### Status
-**RESOLVED**
-
-### Symptoms
-- `/apps/system/lmod/lmod/init/bash: line 106: PS1: unbound variable`
-
-### Root Cause
-Shell ran with `set -u`, causing lmod initialization to fail when `PS1` unset in non-interactive shell
-
-### Solution
-- Wrapped module and conda initialization with `set +u`
-- Set default `PS1` before loading modules, then restored `set -u`
-
-### Impact
-**LOW** - Prevented environment setup until patched
-
----
-
-## Problem 21: CLI Database Flag Rejections (Resolved)
-
-### Status
-**RESOLVED**
-
-### Symptoms
-- `argparse` errors: `Unknown args ['--database.host=...']`
-
-### Root Cause
-Database connection overrides not exposed as CLI options
-
-### Solution
-- Removed unsupported CLI flags from Slurm scripts
-- Relied on configuration file defaults for database settings
-
-### Impact
-**LOW** - Minor script cleanup
-
----
-
-## Problem 22: Model Name Typo (`orthus` vs `orthrus`) (Resolved)
-
-### Status
-**RESOLVED**
-
-### Symptoms
-- `ValueError: Unknown model orthus`
-
-### Root Cause
-Typographical error in Slurm scripts referencing model name
-
-### Solution
-- Updated scripts to use `orthrus`
-
-### Impact
-**LOW** - Quick fix once identified
-
----
-
-## Problem 23: Missing psycopg2 Driver in Container (Resolved)
-
-### Status
-**RESOLVED**
-
-### Symptoms
-- `ModuleNotFoundError: No module named 'psycopg2'`
-
-### Root Cause
-Base Apptainer image lacked PostgreSQL client driver
-
-### Solution
-- Added `psycopg2-binary==2.9.9` to container definition and rebuilt SIF
-
-### Impact
-**LOW** - Required rebuild but straightforward
-
----
-
-## Problem 24: NLTK Punkt Downloads (Resolved)
-
-### Status
-**RESOLVED**
-
-### Symptoms
-- `Error loading punkt: Temporary failure in name resolution`
-
-### Root Cause
-NLTK attempted to download resources at runtime without network access
-
-### Solution
-- Pre-downloaded `punkt` during container build and set `NLTK_DATA=/usr/local/share/nltk_data`
-
-### Impact
-**LOW** - Ensured text preprocessing works offline
-
----
 
 ## Problem 25: TGN Neighbor Graph Construction OOM (Resolved)
 
@@ -664,3 +290,46 @@ CADeTS_E3 dataset (2.68M nodes) requires substantial RAM during TGN neighbor gra
 - Job 6358952 results: `result_6358952.md`
 - All commands: `command.md`
 - Configuration: `config/orthrus_tuned.yml`
+
+---
+
+## Update: October 29, 2025 - Reproduction-Aligned Configuration Changes
+
+### Root Cause Analysis Completed
+
+Based on reproduction guidance from papers, identified three critical mismatches:
+
+1. **ORTHRUS**: `kmeans_top_K=30` too small for 40-120 malicious node datasets; percentile_p=77 excludes too many anomalies
+2. **KAIROS**: Using `node_evaluation` instead of paper's `queue_evaluation` (wrong detection granularity)
+3. **MAGIC**: Implementation already correct; minor mask_rate tuning applied
+
+### Configuration Updates Applied (Batch 2)
+
+**ORTHRUS**:
+
+---
+
+## Update: October 29, 2025 - Batch 2 Configuration Fixes
+
+### Root Cause Identified
+1. **ORTHRUS**: `kmeans_top_K=30` too small; `percentile_p=77` too high
+2. **KAIROS**: Using node-level instead of queue-level detection (wrong granularity)
+3. **MAGIC**: Implementation correct; minor tuning only
+
+### Fixes Applied
+**Config Changes**:
+- `config/orthrus.yml`: kmeans_top_K 30→100
+- `config/orthrus_tuned.yml`: percentile_p 77→90, kmeans_top_K 150→100 (fixed duplicate)
+- `config/kairos.yml` & `kairos_tuned.yml`: node_evaluation → queue_evaluation
+- `config/magic.yml` & `magic_tuned.yml`: mask_rate 0.5→0.4
+- `scripts/submit_all_e3_jobs.sh`: Added `module load apptainer`
+
+**Batch 2 Submitted**: Jobs 6531376-6531396 (18 jobs: 3 datasets × 3 models × 2 configs)
+
+### Expected Outcomes
+- ORTHRUS: 20-80 TPs (from 0), precision 1-10%
+- KAIROS: Queue-level detection (if code works)
+- MAGIC: <5% change
+
+### Status
+Awaiting results (1-2.5h runtime expected)

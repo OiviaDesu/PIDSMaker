@@ -99,7 +99,7 @@ def compute_mcc(tp, fp, tn, fn):
     return mcc
 
 
-def get_threshold(val_tw_path, threshold_method: str):
+def get_threshold(val_tw_path, threshold_method: str, percentile_p: int = None):
     threshold_method = threshold_method.strip()
     if threshold_method == "max_val_loss":
         return calculate_threshold(val_tw_path, threshold_method)["max"]
@@ -113,6 +113,14 @@ def get_threshold(val_tw_path, threshold_method: str):
         return calculate_threshold(val_tw_path, threshold_method)["percentile_90"]
     elif threshold_method == "magic":
         return calculate_threshold(val_tw_path, threshold_method)["mean"]
+    elif threshold_method == "percentile":
+        if percentile_p is None:
+            raise ValueError(
+                "percentile threshold_method requires percentile_p (0-100) to be provided"
+            )
+        return calculate_threshold(val_tw_path, threshold_method, percentile_p=percentile_p)[
+            "percentile"
+        ]
     raise ValueError(f"Invalid threshold method `{threshold_method}`")
 
 
@@ -125,12 +133,13 @@ def reduce_losses_to_score(losses: list[float], threshold_method: str):
         or threshold_method == "threatrace"
         or threshold_method == "flash"
         or threshold_method == "nodlink"
+        or threshold_method == "percentile"
     ):
         return np.max(losses)
     raise ValueError(f"Invalid threshold method {threshold_method}")
 
 
-def calculate_threshold(val_tw_dir, threshold_method):
+def calculate_threshold(val_tw_dir, threshold_method, percentile_p: int = None):
     filelist = listdir_sorted(val_tw_dir)
 
     loss_list = []
@@ -147,9 +156,17 @@ def calculate_threshold(val_tw_dir, threshold_method):
         "mean": mean(loss_list),
         "percentile_90": percentile_90(loss_list),
     }
-    log(
-        f"Thresholds: MEAN={thr['mean']:.3f}, STD={std(loss_list):.3f}, MAX={thr['max']:.3f}, 90 Percentile={thr['percentile_90']:.3f}"
-    )
+    if percentile_p is not None:
+        # Clip percentile bounds and compute
+        p = max(0, min(100, int(percentile_p)))
+        thr["percentile"] = float(np.percentile(np.array(loss_list, dtype=float), p))
+        log(
+            f"Thresholds: MEAN={thr['mean']:.3f}, STD={std(loss_list):.3f}, MAX={thr['max']:.3f}, 90 Percentile={thr['percentile_90']:.3f}, {p} Percentile={thr['percentile']:.3f}"
+        )
+    else:
+        log(
+            f"Thresholds: MEAN={thr['mean']:.3f}, STD={std(loss_list):.3f}, MAX={thr['max']:.3f}, 90 Percentile={thr['percentile_90']:.3f}"
+        )
 
     return thr
 

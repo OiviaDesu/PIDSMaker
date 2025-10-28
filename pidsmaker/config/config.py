@@ -514,7 +514,15 @@ SYNTHETIC_ATTACKS = {
     },
 }
 
-THRESHOLD_METHODS = ["max_val_loss", "mean_val_loss", "threatrace", "magic", "flash", "nodlink"]
+THRESHOLD_METHODS = [
+    "max_val_loss",
+    "mean_val_loss",
+    "threatrace",
+    "magic",
+    "flash",
+    "nodlink",
+    "percentile",
+]
 
 # --- Tasks, subtasks, and argument configurations ---
 TASK_ARGS = {
@@ -776,6 +784,10 @@ TASK_ARGS = {
                     str,
                     vals=OR(THRESHOLD_METHODS),
                     desc="Method to calculate the threshold value used to detect anomalies.",
+                ),
+                "percentile_p": Arg(
+                    int,
+                    desc="If threshold_method is 'percentile', use this percentile (0-100) computed on validation losses as threshold.",
                 ),
                 "use_dst_node_loss": Arg(
                     bool,

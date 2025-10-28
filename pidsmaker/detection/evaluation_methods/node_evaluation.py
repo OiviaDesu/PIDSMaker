@@ -39,6 +39,10 @@ def get_node_predictions(val_tw_path, test_tw_path, cfg, **kwargs):
     threshold_method = cfg.detection.evaluation.node_evaluation.threshold_method
     if threshold_method == "magic":
         thr = get_threshold(test_tw_path, threshold_method)
+    elif threshold_method == "percentile":
+        thr = get_threshold(
+            val_tw_path, threshold_method, percentile_p=cfg.detection.evaluation.node_evaluation.percentile_p
+        )
     else:
         thr = get_threshold(val_tw_path, threshold_method)
     log(f"Threshold: {thr:.3f}")
@@ -110,6 +114,10 @@ def get_node_predictions_node_level(val_tw_path, test_tw_path, cfg, **kwargs):
     threshold_method = cfg.detection.evaluation.node_evaluation.threshold_method
     if threshold_method == "magic":
         thr = get_threshold(test_tw_path, threshold_method)
+    elif threshold_method == "percentile":
+        thr = get_threshold(
+            val_tw_path, threshold_method, percentile_p=cfg.detection.evaluation.node_evaluation.percentile_p
+        )
     else:
         thr = get_threshold(val_tw_path, threshold_method)
     log(f"Threshold: {thr:.3f}")
