@@ -17,6 +17,34 @@ echo "Monitoring job $JOBID (checking every ${INTERVAL}s)..."
 echo "Press Ctrl+C to stop monitoring."
 echo ""
 
+# Helper: find best matching slurm log file for this JOBID
+find_log_file() {
+    local jid="$1"
+    # Common patterns produced by our scripts: *_ctn_<JOBID>.out
+    local cand
+    cand=$(ls -1 "$HOME"/slurm-logs/*_ctn_"${jid}".out 2>/dev/null | head -n1 || true)
+    if [[ -n "$cand" ]]; then
+        echo "$cand"
+        return 0
+    fi
+
+    # Fallback: any file ending with _<JOBID>.out
+    cand=$(ls -1 "$HOME"/slurm-logs/*_"${jid}".out 2>/dev/null | head -n1 || true)
+    if [[ -n "$cand" ]]; then
+        echo "$cand"
+        return 0
+    fi
+
+    # Last resort: any file containing the JOBID
+    cand=$(ls -1 "$HOME"/slurm-logs/*"${jid}"*.out 2>/dev/null | head -n1 || true)
+    if [[ -n "$cand" ]]; then
+        echo "$cand"
+        return 0
+    fi
+
+    echo "" # none found
+}
+
 while true; do
     # Get job state
     STATE=$(sacct -j "$JOBID" --format=State -n | head -1 | xargs)
@@ -25,8 +53,13 @@ while true; do
     if [ "$STATE" = "RUNNING" ]; then
         echo "[$(date '+%H:%M:%S')] Job $JOBID: RUNNING (elapsed: $ELAPSED)"
         
-        # Show last 3 lines of output
-        tail -n 3 "$HOME/slurm-logs/orthus_cadets_e3_ctn_${JOBID}.out" 2>/dev/null | sed 's/^/  | /'
+        # Show last 3 lines of output from detected log
+        LOG_FILE=$(find_log_file "$JOBID")
+        if [[ -n "$LOG_FILE" ]]; then
+            tail -n 3 "$LOG_FILE" 2>/dev/null | sed 's/^/  | /'
+        else
+            echo "  | (log file not found yet in ~/slurm-logs)"
+        fi
         
         sleep "$INTERVAL"
     elif [ "$STATE" = "PENDING" ]; then
@@ -46,9 +79,16 @@ while true; do
         
         echo ""
         echo "Logs:"
-        echo "  Stdout: $HOME/slurm-logs/orthus_cadets_e3_ctn_${JOBID}.out"
-        echo "  Stderr: $HOME/slurm-logs/orthus_cadets_e3_ctn_${JOBID}.err"
-        echo "  Tarball: $HOME/slurm-logs/orthus_cadets_e3_ctn_${JOBID}.tar.gz"
+        LOG_FILE=$(find_log_file "$JOBID")
+        if [[ -n "$LOG_FILE" ]]; then
+            echo "  Stdout: $LOG_FILE"
+            # Derive base without extension for related files
+            BASE_NOEXT="${LOG_FILE%.out}"
+            echo "  Stderr: ${BASE_NOEXT}.err"
+            echo "  Tarball: ${BASE_NOEXT}.tar.gz"
+        else
+            echo "  (log files not found in ~/slurm-logs yet)"
+        fi
         echo ""
         echo "To sync W&B and extract artifacts:"
         echo "  ./scripts/sync_wandb_run.sh $JOBID"
