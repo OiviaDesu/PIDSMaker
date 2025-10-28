@@ -1130,6 +1130,12 @@ Monitor with:
 
 I'll follow-up and collect logs/early failure evidence for any FAILED states; initial squeue showed several CADETS jobs running and the rest pending.
 
+Early outcome and fix:
+- sacct shows all 18 jobs FAILED within ~1–9 minutes (ExitCode 1:0)
+- Root cause: ImportError inside container — `cannot import name 'set_task_to_done' from 'pidsmaker.config'`
+- Fix applied: Implemented `TASK_FINISHED_FILE` and `set_task_to_done()` in `pidsmaker/config/pipeline.py` and pushed to `supercomputer` branch (commit 13e95ac)
+- Next: resubmit the same batch (Batch 12) now that the import is fixed
+
 
 3. **PostgreSQL connection stability** (Jobs 6397059, 6397060, 6397062):
    - Error: `psycopg2.OperationalError: connection to server was closed unexpectedly`

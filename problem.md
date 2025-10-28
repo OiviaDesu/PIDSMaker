@@ -4,6 +4,16 @@ This document captures the root causes behind the latest batch (Batch 10, jobs 6
 
 ## Summary of issues
 
+4) ImportError in container: missing set_task_to_done
+- Evidence: All Batch 11 jobs failed in ~1–9 minutes with
+  - `ImportError: cannot import name 'set_task_to_done' from 'pidsmaker.config'`
+- Impact: The pipeline aborted at startup inside the container, before running any tasks.
+- Root cause: The function `set_task_to_done` and the marker `TASK_FINISHED_FILE` were referenced by `pidsmaker.main` / `pipeline` but not defined in the config package.
+- Fix in repo: Implemented in `pidsmaker/config/pipeline.py`:
+  - `TASK_FINISHED_FILE = "TASK_FINISHED"`
+  - `set_task_to_done(task_path)` creates the marker file inside a task folder
+  - Exported implicitly via `from .pipeline import *` so `from pidsmaker.config import set_task_to_done` works inside the container
+
 1) Node-local storage not used → Postgres restore ran on /tmp and ran out of space
 - Evidence: `No space left on device` during `pg_restore` across CADETS_E3 and THEIA_E3.
   - Example (6532649, orthrus_default_theia_e3):
