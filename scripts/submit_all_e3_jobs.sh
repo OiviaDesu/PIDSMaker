@@ -97,8 +97,8 @@ export PYTHONUNBUFFERED=1
 
 # Job-specific paths
 JOB_ID=$SLURM_JOB_ID
-# Use unique port per job to avoid conflicts when multiple jobs run on same node
-PG_PORT=$((55432 + (JOB_ID % 1000)))
+# Use unique port per job to avoid conflicts when multiple jobs run on same node  
+PG_PORT=\$((55432 + (JOB_ID % 1000)))
 TMPDIR="/fred/oz396/dunguyen/tmp/pidsmaker_${JOB_ID}"
 PGDATA="${TMPDIR}/pgdata"
 ARTIFACT_DIR="${TMPDIR}/artifacts"
