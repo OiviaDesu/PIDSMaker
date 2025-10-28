@@ -100,17 +100,15 @@ JOB_ID=$SLURM_JOB_ID
 # Use unique port per job to avoid conflicts when multiple jobs run on same node
 PG_PORT=$((55432 + (JOB_ID % 1000)))
 # Prefer node-local scratch if available to avoid shared /fred quota
-# Try $TMPDIR (common), then $SLURM_TMPDIR, then /scratch, else fallback to /fred
-TMPDIR_BASE="${TMPDIR:-}"
-if [ -z "${TMPDIR_BASE}" ]; then
-    TMPDIR_BASE="${SLURM_TMPDIR:-}"
-fi
-if [ -z "${TMPDIR_BASE}" ]; then
-    if [ -d "/scratch" ] && [ -w "/scratch" ]; then
-        TMPDIR_BASE="/scratch/${USER}/${JOB_ID}"
-    fi
-fi
-if [ -z "${TMPDIR_BASE}" ]; then
+# Priority: $SLURM_TMPDIR (if set), then /scratch/$USER/$JOB_ID, then a non-/tmp $TMPDIR, else fallback to /fred
+TMPDIR_BASE=""
+if [ -n "${SLURM_TMPDIR:-}" ] && [ -d "${SLURM_TMPDIR}" ] && [ -w "${SLURM_TMPDIR}" ]; then
+    TMPDIR_BASE="${SLURM_TMPDIR}"
+elif [ -d "/scratch" ] && [ -w "/scratch" ]; then
+    TMPDIR_BASE="/scratch/${USER}/${JOB_ID}"
+elif [ -n "${TMPDIR:-}" ] && [ "${TMPDIR}" != "/tmp" ]; then
+    TMPDIR_BASE="${TMPDIR}"
+else
     TMPDIR_BASE="/fred/oz396/dunguyen/tmp"
 fi
 TMPDIR="${TMPDIR_BASE}/pidsmaker_${JOB_ID}"
@@ -170,16 +168,28 @@ echo "Creating database and restoring from dump..."
 PG_BIN_PLACEHOLDER/createdb -h 127.0.0.1 -p ${PG_PORT} -U postgres DATASET_LC_PLACEHOLDER || echo "Database DATASET_LC_PLACEHOLDER may already exist"
 
 echo "Restoring database from /fred/oz396/dunguyen/data/DATASET_LC_PLACEHOLDER.dump..."
+# Check available free space in TMPDIR before restoring large DB dump.
+# If free space is below MIN_TMP_BYTES, fail early with a clear message.
+MIN_TMP_BYTES=$((10 * 1024 * 1024 * 1024))  # 10 GiB
+avail_bytes=$(df -PB1 "${TMPDIR}" | awk 'END{print $4+0}') || avail_bytes=0
+echo "TMPDIR=${TMPDIR} available bytes=${avail_bytes} threshold=${MIN_TMP_BYTES}"
+if [ "${avail_bytes}" -lt "${MIN_TMP_BYTES}" ]; then
+    echo "ERROR: Not enough free space in ${TMPDIR} to restore the database (need >= ${MIN_TMP_BYTES} bytes)." >&2
+    echo "Suggest: set SLURM_TMPDIR to a node-local location or increase scratch allocation." >&2
+    exit 1
+fi
+
 PG_BIN_PLACEHOLDER/pg_restore -h 127.0.0.1 -p ${PG_PORT} -U postgres -d DATASET_LC_PLACEHOLDER \
     /fred/oz396/dunguyen/data/DATASET_LC_PLACEHOLDER.dump || echo "Restore may have completed with warnings"
 
 # Run PIDSMaker inside Apptainer
 echo "Running PIDSMaker..."
+set -o pipefail
 apptainer exec --nv \
     -B /home/dunguyen/git/PIDSMaker:/opt/PIDSMaker \
     -B "${TMPDIR}:${TMPDIR}" \
     CONTAINER_PLACEHOLDER \
-    bash -lc "cd /opt/PIDSMaker && \
+    bash -lc "set -o pipefail; cd /opt/PIDSMaker && \
     python -m pidsmaker.main MODEL_CFG_PLACEHOLDER DATASET_PLACEHOLDER \
         --artifact_dir_in_container ${ARTIFACT_DIR} \
         --restart_from_scratch \
@@ -187,6 +197,11 @@ apptainer exec --nv \
         --db_port ${PG_PORT} \
         --wandb --project PROJECT_PLACEHOLDER \
         2>&1 | tee ${RUN_LOG}"
+PY_EXIT=$?
+if [ $PY_EXIT -ne 0 ]; then
+    echo "PIDSMaker exited with code ${PY_EXIT}" >&2
+    exit $PY_EXIT
+fi
 
 echo "Job completed successfully."
 EOFSCRIPT
