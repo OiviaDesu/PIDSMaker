@@ -100,14 +100,18 @@ JOB_ID=$SLURM_JOB_ID
 # Use unique port per job to avoid conflicts when multiple jobs run on same node
 PG_PORT=$((55432 + (JOB_ID % 1000)))
 # Prefer node-local scratch if available to avoid shared /fred quota
-TMPDIR_BASE="${SLURM_TMPDIR}"
+# Try $TMPDIR (common), then $SLURM_TMPDIR, then /scratch, else fallback to /fred
+TMPDIR_BASE="${TMPDIR:-}"
 if [ -z "${TMPDIR_BASE}" ]; then
-    # Fallbacks if SLURM_TMPDIR is not set
+    TMPDIR_BASE="${SLURM_TMPDIR:-}"
+fi
+if [ -z "${TMPDIR_BASE}" ]; then
     if [ -d "/scratch" ] && [ -w "/scratch" ]; then
         TMPDIR_BASE="/scratch/${USER}/${JOB_ID}"
-    else
-        TMPDIR_BASE="/fred/oz396/dunguyen/tmp"
     fi
+fi
+if [ -z "${TMPDIR_BASE}" ]; then
+    TMPDIR_BASE="/fred/oz396/dunguyen/tmp"
 fi
 TMPDIR="${TMPDIR_BASE}/pidsmaker_${JOB_ID}"
 PGDATA="${TMPDIR}/pgdata"
