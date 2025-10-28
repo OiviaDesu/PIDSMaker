@@ -31,7 +31,7 @@ while true; do
     echo "All jobs have left the queue. Proceeding to metrics collection..."
     break
   fi
-  date +'[%H:%M:%S] Queue still active: %s jobs' "$AC"
+  printf '[%s] Queue still active: %s jobs\n' "$(date +%H:%M:%S)" "$AC"
   print_status || true
   sleep "$INTERVAL"
 done
