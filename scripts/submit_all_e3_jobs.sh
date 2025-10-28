@@ -99,7 +99,17 @@ export PYTHONUNBUFFERED=1
 JOB_ID=$SLURM_JOB_ID
 # Use unique port per job to avoid conflicts when multiple jobs run on same node
 PG_PORT=$((55432 + (JOB_ID % 1000)))
-TMPDIR="/fred/oz396/dunguyen/tmp/pidsmaker_${JOB_ID}"
+# Prefer node-local scratch if available to avoid shared /fred quota
+TMPDIR_BASE="${SLURM_TMPDIR}"
+if [ -z "${TMPDIR_BASE}" ]; then
+    # Fallbacks if SLURM_TMPDIR is not set
+    if [ -d "/scratch" ] && [ -w "/scratch" ]; then
+        TMPDIR_BASE="/scratch/${USER}/${JOB_ID}"
+    else
+        TMPDIR_BASE="/fred/oz396/dunguyen/tmp"
+    fi
+fi
+TMPDIR="${TMPDIR_BASE}/pidsmaker_${JOB_ID}"
 PGDATA="${TMPDIR}/pgdata"
 ARTIFACT_DIR="${TMPDIR}/artifacts"
 PG_LOG="${TMPDIR}/postgres.log"
@@ -114,10 +124,10 @@ cleanup() {
     if [ -f "${PGDATA}/postmaster.pid" ]; then
         PG_BIN_PLACEHOLDER/pg_ctl -D "${PGDATA}" stop -m fast || true
     fi
-    # Archive artifacts to shared storage
-    cd "${TMPDIR}"
-    tar -czf "LOG_DIR_PLACEHOLDER/JOB_NAME_PLACEHOLDER_ctn_${JOB_ID}.tar.gz" artifacts/ *.log 2>/dev/null || true
-    cd /
+    # Persist only lightweight logs to shared storage to avoid quota issues
+    if [ -d "${TMPDIR}" ]; then
+        ( cd "${TMPDIR}" && tar -czf "LOG_DIR_PLACEHOLDER/JOB_NAME_PLACEHOLDER_ctn_${JOB_ID}_logs.tar.gz" --ignore-failed-read --warning=no-file-changed -- *.log 2>/dev/null ) || true
+    fi
     rm -rf "${TMPDIR}"
 }
 trap cleanup EXIT
