@@ -4,6 +4,79 @@ This document consolidates every recent Orthrus run on OzSTAR for the CADETS_E3 
 
 ---
 
+## PHASE 1 TESTING: BUG FIX #3 - CSV COLUMN MISMATCH (Oct 31, 2025 - 00:20 AEDT)
+
+### Current Status: 🔧 THIRD FIX APPLIED & RESUBMITTED
+
+**Update:** Magic jobs failed again due to CSV column mismatch. Fixed and resubmitted.
+
+### Job Status (Updated: 2025-10-31 00:20 AEDT)
+
+| Job ID  | Model          | Status      | Elapsed  | Notes                                    |
+|---------|----------------|-------------|----------|------------------------------------------|
+| 6553701 | Orthrus        | ✅ COMPLETED | 47:09   | 0 TP - threshold too conservative       |
+| 6554367 | Kairos         | ⏳ RUNNING   | ~3h     | Still training (epoch 6+)               |
+| 6555540 | Magic Baseline | ❌ FAILED    | 54:45   | CSV column mismatch - FIXED             |
+| 6555565 | Magic Adaptive | ❌ FAILED    | 1:02:49 | CSV column mismatch - FIXED             |
+| 6555846 | Magic Baseline | 🔄 RESUBMITTED | --   | Resubmitted with column fix             |
+| 6555847 | Magic Adaptive | 🔄 RESUBMITTED | --   | Resubmitted with column fix             |
+
+### Bug 3: CSV Column Mismatch (FIXED ✅)
+
+**Failed Jobs**: 6555540 (Magic Baseline), 6555565 (Magic Adaptive)  
+**Error**: `ValueError: No embedding columns found in ... with prefix 'emb_'` → Fallback: `ValueError: No 'magic_score' column found in ...`  
+**Root Cause**: The generated CSV files contain only `node,loss` columns, but Magic detection expected:
+- Option 1: Embedding columns (`emb_0`, `emb_1`, ..., `emb_N`) for KNN detection, or
+- Option 2: A `magic_score` column as fallback
+
+**Investigation**:
+```bash
+$ head -1 /fred/oz411/.../val/model_epoch_0/*.csv
+node,loss
+```
+
+**Fix Applied (Commit a43cc44)**:
+
+1. **Updated `load_magic_scores_from_csv()` in `magic_detection.py`**:
+   - Added fallback to use `loss` column if `magic_score` not found
+   - Log when using fallback: `"Using 'loss' column as fallback for magic_score"`
+
+2. **Updated `load_embeddings_from_csv()` in `magic_detection.py`**:
+   - Handle both `node_id` and `node` column names for node identifiers
+
+3. **Updated `run_magic_adaptive_wrapper()` in `node_evaluation.py`**:
+   - Handle both `node_id` and `node` column names when loading validation/test data
+
+4. **Updated Magic baseline routing in `node_evaluation.py`**:
+   - Handle both `node_id` and `node` column names when building label arrays
+
+**Code Changes**:
+```python
+# magic_detection.py: load_magic_scores_from_csv()
+if "magic_score" in df.columns:
+    scores = df["magic_score"].values
+elif "loss" in df.columns:
+    log(f"[Magic] Using 'loss' column as fallback for magic_score...")
+    scores = df["loss"].values
+else:
+    raise ValueError(f"No 'magic_score' or 'loss' column found in {file}")
+
+# Handle both 'node_id' and 'node' columns
+if "node_id" in df.columns:
+    node_ids = df["node_id"].values.tolist()
+elif "node" in df.columns:
+    node_ids = df["node"].values.tolist()
+else:
+    node_ids = list(range(len(df)))
+```
+
+### Resubmitted Jobs (Third Attempt)
+
+- **6555846**: Magic Baseline (resubmitted at 00:20 AEDT)
+- **6555847**: Magic Adaptive (resubmitted at 00:20 AEDT)
+
+---
+
 ## PHASE 1 TESTING: BUG FIXES & RESUBMISSIONS (Oct 30, 2025 - 12:15 AEDT)
 
 ### Current Status: 🔧 FIXED AND RESUBMITTED
