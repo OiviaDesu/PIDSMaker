@@ -4,9 +4,103 @@ This document consolidates every recent Orthrus run on OzSTAR for the CADETS_E3 
 
 ---
 
+## PHASE 1 TESTING: BUG FIXES & RESUBMISSIONS (Oct 30, 2025 - 12:15 AEDT)
+
+### Current Status: 🔧 FIXED AND RESUBMITTED
+
+**Update:** Found and fixed 2 critical bugs in Magic baseline and adaptive integration. All jobs resubmitted.
+
+### Job Status (Updated: 2025-10-30 12:15 AEDT)
+
+| Job ID  | Model          | Status      | Elapsed  | Notes                                    |
+|---------|----------------|-------------|----------|------------------------------------------|
+| 6553701 | Orthrus        | ✅ COMPLETED | 47:09   | 0 TP - threshold too conservative       |
+| 6554367 | Kairos         | ⏳ RUNNING   | 1:20:18  | Epoch 1/12, ETA 2-2.5h total            |
+| 6555540 | Magic Baseline | 🔄 RUNNING   | 0:04:18  | Resubmitted with fixes                  |
+| 6555565 | Magic Adaptive | 🔄 RUNNING   | 0:00:01  | Resubmitted with fixes                  |
+
+### Bugs Found & Fixed
+
+#### Bug 1: Magic Baseline - Function Signature Mismatch (FIXED ✅)
+**Failed Job**: 6554513 (after 58:14)  
+**Error**: `TypeError: listdir: path should be string, bytes, os.PathLike, integer or None, not CfgNode`  
+**Root Cause**: `node_evaluation.py` line 283 called `process_magic_knn_detection(cfg, val_tw_path, test_tw_path, model_epoch_dir)` but function expected different signature
+
+**Expected Signature**:
+```python
+process_magic_knn_detection(
+    val_tw_path: str, 
+    test_tw_path: str, 
+    val_labels: np.ndarray, 
+    test_labels: np.ndarray,
+    knn_k: int, 
+    target_fpr: float, 
+    embedding_col_prefix: str
+)
+```
+
+**Fix Applied (Commit e68780a)**:
+1. Load node_ids from validation and test CSV files
+2. Build label arrays from ground_truth_nids: `labels = [1 if nid in ground_truth_nids else 0]`
+3. Extract knn_k, target_fpr from config
+4. Pass correct arguments to function
+
+#### Bug 2: Magic Adaptive - Wrong Function Call (FIXED ✅)
+**Failed Job**: 6554848 (after 1:03:02)  
+**Error**: `TypeError: process_magic_adaptive_detection() got an unexpected keyword argument 'enable_adaptation'`  
+**Root Cause**: Adaptive function has completely different signature expecting `baseline_results` dict and `test_days_data` list
+
+**Fix Applied (Commits e68780a + 0dc65c1)**:
+1. Created `run_magic_adaptive_wrapper()` function in node_evaluation.py (98 lines)
+2. Implemented two-stage process:
+   - **Stage 1**: Run baseline KNN detection on validation → get θ, knn_index, val_embeddings
+   - **Stage 2**: Prepare per-day test data → call `process_magic_adaptive_detection(baseline_results, test_days_data, ...)`
+3. Added missing import: `from typing import Dict`
+
+### Code Changes Summary
+
+**File**: `pidsmaker/detection/evaluation_methods/node_evaluation.py`
+
+**Additions**:
+- Added imports: `import numpy as np`, `from typing import Dict`
+- Fixed Magic baseline routing (lines ~320-360):
+  - Load node_ids from validation/test CSVs
+  - Build numpy label arrays from ground_truth_nids
+  - Extract Magic parameters from config (knn_k, target_fpr)
+  - Call `process_magic_knn_detection()` with correct signature
+- Created `run_magic_adaptive_wrapper()` (lines ~268-365):
+  - Stage 1: Run baseline detection to get θ and KNN index
+  - Stage 2: Prepare per-day test data with embeddings and labels
+  - Stage 3: Call `process_magic_adaptive_detection()` with proper arguments
+
+### Resubmitted Jobs
+
+- **6555540**: Magic Baseline (resubmitted at 12:11 AEDT)
+- **6555565**: Magic Adaptive (resubmitted at 12:15 AEDT)
+
+### Monitoring Commands
+
+```bash
+# Watch all running jobs
+watch -n 30 'sacct -j 6554367,6555540,6555565 --format=JobID,JobName%30,State,Elapsed -X'
+
+# Check individual logs
+tail -50 /fred/oz411/dunguyen/slurm-logs/kairos_phase1_cadets_e3_milan_cpu_6554367.out
+tail -50 /fred/oz411/dunguyen/slurm-logs/magic_phase1_cadets_e3_milan_cpu_6555540.out
+tail -50 /fred/oz411/dunguyen/slurm-logs/magic_adaptive_cadets_e3_milan_cpu_6555565.out
+```
+
+### Expected Completion Times
+
+- **Kairos** (6554367): ~2-2.5h total → ETA 12:55-13:25 AEDT
+- **Magic Baseline** (6555540): ~1h total → ETA 13:15 AEDT  
+- **Magic Adaptive** (6555565): ~1-1.5h total → ETA 13:15-13:45 AEDT
+
+---
+
 ## PHASE 1 TESTING: GPU + CPU PARALLEL VALIDATION (Oct 30, 2025)
 
-### Testing Status: ✅ ALL CPU JOBS RUNNING
+### Testing Status: ✅ ALL CPU JOBS RUNNING (SUPERSEDED - SEE ABOVE)
 
 **Objective:** Validate Phase 1 paper-faithful implementations across all 3 models (Orthrus, Kairos, Magic) on CADETS_E3
 
