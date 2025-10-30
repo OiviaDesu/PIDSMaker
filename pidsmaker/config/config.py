@@ -515,8 +515,14 @@ SYNTHETIC_ATTACKS = {
 }
 
 THRESHOLD_METHODS = [
+    # Node-based methods (ORTHRUS paper-aligned, Reference: §4.4)
+    "max_val_node_score",
+    "mean_val_node_score",
+    "percentile_val_node_score",
+    # Legacy edge-based methods (deprecated, kept for backward compatibility)
     "max_val_loss",
     "mean_val_loss",
+    # Model-specific methods
     "threatrace",
     "magic",
     "flash",
@@ -798,6 +804,30 @@ TASK_ARGS = {
                 ),
                 "kmeans_top_K": Arg(
                     int, desc="Number of top-score nodes selected before clustering."
+                ),
+                "knn_k": Arg(
+                    int, desc="Number of KNN neighbors for Magic detection (0 = disabled)."
+                ),
+                "target_fpr": Arg(
+                    float, desc="Target FPR for Magic threshold selection (e.g., 0.01 for 1%)."
+                ),
+                "enable_adaptation": Arg(
+                    bool, desc="Enable Magic's periodic adaptation mechanism."
+                ),
+                "feedback_budget": Arg(
+                    float, desc="Fraction of FPs to use for feedback in Magic adaptation."
+                ),
+                "adaptation_frequency": Arg(
+                    str, desc="Adaptation cycle frequency ('per_day', 'per_window', etc.)."
+                ),
+                "max_store_size": Arg(
+                    int, desc="Maximum benign nodes in KNN store (FIFO discounting)."
+                ),
+                "finetune_epochs": Arg(
+                    int, desc="Number of fine-tuning epochs per adaptation cycle."
+                ),
+                "finetune_lr": Arg(
+                    float, desc="Learning rate for encoder fine-tuning during adaptation."
                 ),
             },
             "tw_evaluation": {
