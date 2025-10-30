@@ -1,6 +1,7 @@
 import os
 from collections import defaultdict
 
+import numpy as np
 import pandas as pd
 import torch
 
@@ -22,6 +23,12 @@ from pidsmaker.detection.evaluation_methods.evaluation_utils import (
     reduce_losses_to_score,
     transform_attack2nodes_to_node2attacks,
 )
+from pidsmaker.detection.evaluation_methods.magic_detection import (
+    process_magic_knn_detection,
+)
+from pidsmaker.detection.evaluation_methods.magic_adaptation import (
+    process_magic_adaptive_detection,
+)
 from pidsmaker.utils.labelling import get_GP_of_each_attack
 from pidsmaker.utils.utils import (
     get_all_files_from_folders,
@@ -37,6 +44,12 @@ def get_node_predictions(val_tw_path, test_tw_path, cfg, **kwargs):
     log(f"Loading data from {test_tw_path}...")
 
     threshold_method = cfg.detection.evaluation.node_evaluation.threshold_method
+    
+    # Magic with KNN will be handled by routing in main(), skip standard thresholding here
+    if threshold_method == "magic" and cfg.detection.evaluation.node_evaluation.get("knn_k", 0) > 0:
+        log(f"[Node-based] Magic KNN detection will be handled by custom routing")
+        return None, None
+    
     if threshold_method == "magic":
         thr = get_threshold(test_tw_path, threshold_method)
     elif threshold_method == "percentile":
@@ -252,7 +265,163 @@ def analyze_false_positives(
     return fp_in_malicious_tw_ratio
 
 
+def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwargs) -> Dict:
+    """
+    Wrapper for Magic adaptive detection that:
+    1. Runs baseline KNN detection on validation
+    2. Prepares per-day test data
+    3. Calls adaptive detection with baseline results
+    """
+    from pidsmaker.detection.evaluation_methods.magic_detection import (
+        load_embeddings_from_csv, build_knn_index, compute_knn_outlier_scores, sweep_validation_threshold
+    )
+    
+    log("\n=== MAGIC ADAPTIVE DETECTION: STEP 1/2 - BASELINE ===")
+    
+    # Get ground truth
+    ground_truth_nids, _ = get_ground_truth_nids(cfg)
+    
+    # Load validation data
+    log(f"Loading validation node IDs and embeddings from {val_tw_path}")
+    val_files = sorted([os.path.join(val_tw_path, f) for f in os.listdir(val_tw_path) if f.endswith('.csv')])
+    val_node_ids = []
+    for f in val_files:
+        df = pd.read_csv(f)
+        if 'node_id' in df.columns:
+            val_node_ids.extend(df['node_id'].values.tolist())
+    
+    # Build validation labels
+    val_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in val_node_ids])
+    log(f"Validation: {len(val_node_ids)} nodes, {np.sum(val_labels)} malicious")
+    
+    # Load validation embeddings and run baseline
+    embedding_col_prefix = "emb_"
+    val_embeddings, _ = load_embeddings_from_csv(val_tw_path, embedding_col_prefix)
+    
+    # Build KNN index and compute scores
+    knn_k = cfg.detection.evaluation.node_evaluation.get("knn_k", 20)
+    knn_index = build_knn_index(val_embeddings, k=knn_k)
+    val_scores = compute_knn_outlier_scores(val_embeddings, knn_index)
+    
+    # Select threshold
+    target_fpr = cfg.detection.evaluation.node_evaluation.get("target_fpr", 0.01)
+    result = sweep_validation_threshold(val_scores, val_labels, target_fpr)
+    theta = result["theta"]
+    
+    baseline_results = {
+        "theta": theta,
+        "knn_index": knn_index,
+        "val_embeddings": val_embeddings,
+        "val_scores": val_scores,
+        "val_labels": val_labels,
+        **result
+    }
+    
+    log(f"Baseline θ = {theta:.6f} at FPR={result['val_fpr']:.6f}")
+    
+    # Prepare per-day test data
+    log("\n=== MAGIC ADAPTIVE DETECTION: STEP 2/2 - ADAPTATION ===")
+    log(f"Loading test data from {test_tw_path}")
+    
+    test_files = sorted([os.path.join(test_tw_path, f) for f in os.listdir(test_tw_path) if f.endswith('.csv')])
+    
+    # Group files by day/time window for per-day adaptation
+    # For simplicity, treat each file as a "day"
+    test_days_data = []
+    for f in test_files:
+        df = pd.read_csv(f)
+        
+        # Extract embeddings
+        emb_cols = [col for col in df.columns if col.startswith(embedding_col_prefix)]
+        embeddings = df[emb_cols].values
+        
+        # Extract node IDs and build labels
+        node_ids = df['node_id'].values.tolist() if 'node_id' in df.columns else list(range(len(df)))
+        labels = np.array([1 if nid in ground_truth_nids else 0 for nid in node_ids])
+        
+        test_days_data.append({
+            "embeddings": embeddings,
+            "labels": labels,
+            "node_ids": node_ids
+        })
+    
+    log(f"Prepared {len(test_days_data)} test days for adaptation")
+    
+    # Extract adaptation parameters
+    max_store_size = cfg.detection.evaluation.node_evaluation.get("max_store_size", 10000)
+    feedback_budget = cfg.detection.evaluation.node_evaluation.get("feedback_budget", 0.15)
+    finetune_epochs = cfg.detection.evaluation.node_evaluation.get("finetune_epochs", 5)
+    finetune_lr = cfg.detection.evaluation.node_evaluation.get("finetune_lr", 1e-5)
+    
+    # Run adaptive detection
+    adaptive_results = process_magic_adaptive_detection(
+        baseline_results=baseline_results,
+        test_days_data=test_days_data,
+        model=None,  # No model fine-tuning for Phase 1
+        knn_k=knn_k,
+        max_store_size=max_store_size,
+        feedback_budget=feedback_budget,
+        finetune_epochs=finetune_epochs,
+        finetune_lr=finetune_lr,
+        device='cpu'
+    )
+    
+    return adaptive_results
+
+
 def main(val_tw_path, test_tw_path, model_epoch_dir, cfg, tw_to_malicious_nodes, **kwargs):
+    # Route to Magic Phase 1 detection if enable_adaptation is configured
+    threshold_method = cfg.detection.evaluation.node_evaluation.threshold_method
+    if threshold_method == "magic":
+        # Check if adaptation is enabled in config
+        enable_adaptation = cfg.detection.evaluation.node_evaluation.get("enable_adaptation", False)
+        if enable_adaptation:
+            log("[Node-based] Routing to Magic Phase 1 adaptive detection")
+            return run_magic_adaptive_wrapper(val_tw_path, test_tw_path, cfg, **kwargs)
+        else:
+            # Check if we should use KNN detection
+            if cfg.detection.evaluation.node_evaluation.get("knn_k", 0) > 0:
+                log("[Node-based] Routing to Magic Phase 1 KNN detection")
+                
+                # Get ground truth malicious nodes
+                ground_truth_nids, _ = get_ground_truth_nids(cfg)
+                
+                # Load node_ids from CSV to build label arrays
+                log(f"Loading validation node IDs from {val_tw_path}")
+                val_files = sorted([os.path.join(val_tw_path, f) for f in os.listdir(val_tw_path) if f.endswith('.csv')])
+                val_node_ids = []
+                for f in val_files:
+                    df = pd.read_csv(f)
+                    if 'node_id' in df.columns:
+                        val_node_ids.extend(df['node_id'].values.tolist())
+                
+                log(f"Loading test node IDs from {test_tw_path}")
+                test_files = sorted([os.path.join(test_tw_path, f) for f in os.listdir(test_tw_path) if f.endswith('.csv')])
+                test_node_ids = []
+                for f in test_files:
+                    df = pd.read_csv(f)
+                    if 'node_id' in df.columns:
+                        test_node_ids.extend(df['node_id'].values.tolist())
+                
+                # Build label arrays: 1 if node_id is in ground_truth_nids, 0 otherwise
+                val_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in val_node_ids])
+                test_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in test_node_ids])
+                
+                log(f"Validation: {len(val_node_ids)} nodes, {np.sum(val_labels)} malicious")
+                log(f"Test: {len(test_node_ids)} nodes, {np.sum(test_labels)} malicious")
+                
+                # Extract Magic parameters from config
+                knn_k = cfg.detection.evaluation.node_evaluation.get("knn_k", 20)
+                target_fpr = cfg.detection.evaluation.node_evaluation.get("target_fpr", 0.01)
+                embedding_col_prefix = "emb_"
+                
+                return process_magic_knn_detection(
+                    val_tw_path, test_tw_path, 
+                    val_labels, test_labels,
+                    knn_k, target_fpr, embedding_col_prefix
+                )
+    
+    # Standard node evaluation path
     if cfg._is_node_level:
         get_preds_fn = get_node_predictions_node_level
     else:
