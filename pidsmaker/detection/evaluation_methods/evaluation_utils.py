@@ -207,12 +207,16 @@ def calculate_node_scores_from_edges(val_tw_dir):
         df = pd.read_csv(f).to_dict()
         
         # Check if per-edge format (has src/dst) or per-node format
-        if 'src' in df and 'dst' in df and 'loss' in df:
+        # Handle both 'src'/'dst' and 'srcnode'/'dstnode' column names
+        src_col = 'src' if 'src' in df else ('srcnode' if 'srcnode' in df else None)
+        dst_col = 'dst' if 'dst' in df else ('dstnode' if 'dstnode' in df else None)
+        
+        if src_col and dst_col and 'loss' in df:
             # Per-edge format: aggregate by both src and dst
             for i in range(len(df['loss'])):
                 loss = df['loss'][i]
-                node_to_losses[df['src'][i]].append(loss)
-                node_to_losses[df['dst'][i]].append(loss)
+                node_to_losses[df[src_col][i]].append(loss)
+                node_to_losses[df[dst_col][i]].append(loss)
                 
         elif 'node_id' in df and 'loss' in df:
             # Already per-node format
@@ -225,7 +229,7 @@ def calculate_node_scores_from_edges(val_tw_dir):
                     node_to_losses[df['node'][i]].append(df['loss'][i])
             else:
                 raise ValueError(
-                    f"CSV format not recognized. Expected columns: (src, dst, loss) or (node_id, loss). "
+                    f"CSV format not recognized. Expected columns: (src/srcnode, dst/dstnode, loss) or (node_id, loss). "
                     f"Found: {list(df.keys())}"
                 )
     
