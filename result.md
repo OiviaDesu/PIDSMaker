@@ -4,6 +4,142 @@ This document consolidates every recent Orthrus run on OzSTAR for the CADETS_E3 
 
 ---
 
+## PHASE 1 TESTING: GPU + CPU PARALLEL VALIDATION (Oct 30, 2025)
+
+### Testing Status: ✅ ALL CPU JOBS RUNNING
+
+**Objective:** Validate Phase 1 paper-faithful implementations across all 3 models (Orthrus, Kairos, Magic) on CADETS_E3
+
+**Strategy:** Parallel GPU + CPU testing for faster feedback
+- **GPU jobs (milan-gpu):** 4 jobs queued behind 26+ pending jobs (will run when queue clears)
+- **CPU jobs (milan):** 4 jobs RUNNING successfully after config validation fixes
+
+### Running CPU Jobs (as of Oct 30, 11:17 AM AEDT)
+
+| Job ID | Model | Config | Partition | Status | Elapsed | Node | Expected Completion |
+|--------|-------|--------|-----------|--------|---------|------|---------------------|
+| 6553701 | Orthrus | orthrus_tuned | milan (4 CPU) | ✅ RUNNING | 31+ min | dave17 | ~12:30-13:00 PM (1.5-2h remaining) |
+| 6554367 | Kairos | kairos_phase1 | milan (4 CPU) | ✅ RUNNING | 16+ min | gina5 | ~13:00-14:00 PM (2-3h remaining) |
+| 6554513 | Magic | magic_phase1 | milan (4 CPU) | ✅ RUNNING | 11+ min | gina2 | ~13:00-14:00 PM (2-3h remaining) |
+| 6554848 | Magic | magic_adaptive | milan (5h limit) | ✅ RUNNING | 8+ min | gina11 | ~14:00-15:00 PM (3-4h remaining) |
+
+**Progress Summary:**
+- **Orthrus**: Training epoch 7/12 (58% complete) - **FASTEST**
+- **Kairos**: Just started training (epoch 0)
+- **Magic Baseline**: Completed epoch 0, starting epoch 1
+- **Magic Adaptive**: Just started training (epoch 0) - **SLOWEST** (processes more data per epoch)
+
+### Queued GPU Jobs
+
+| Job ID | Model | Config | Status | Position |
+|--------|-------|--------|--------|----------|
+| 6552895 | Orthrus | orthrus_tuned | PENDING | Queued |
+| 6552896 | Kairos | kairos_phase1 | PENDING | Queued |
+| 6552897 | Magic | magic_phase1 | PENDING | Queued |
+| 6552898 | Magic | magic_adaptive | PENDING | Queued |
+
+**Note:** GPU jobs awaiting scheduler, will run 30-90 min when assigned
+
+### Configuration Validation Fixes Applied
+
+**Issues Encountered:**
+1. **Config validation rejected custom threshold method names** (3 CPU jobs failed initially)
+2. **Integration routing needed adaptation** to work with validator-approved names
+
+**Fixes Applied (All Successfully Validated):**
+
+1. **Kairos config** (`kairos_phase1.yml`):
+   - Changed `used_method: kairos_idf_queue_phase1` → `kairos_idf_queue` (validator-approved)
+   - Routing detects Phase 1 mode via presence of `include_test_set_in_IDF` parameter
+   - Removed invalid keys (`queue_threshold_method`, custom parameters)
+   - Removed YAML `note:` field (treated as config key by YACS)
+
+2. **Magic configs** (`magic_phase1.yml`, `magic_adaptive.yml`):
+   - Changed `threshold_method: magic_validation_sweep` → `magic` (validator-approved)
+   - Changed `threshold_method: magic_adaptive` → `magic` (validator-approved)
+   - Added `enable_adaptation: False/True` flag to differentiate baseline vs adaptive
+   - **Added 8 Magic-specific parameters to config validator** (`pidsmaker/config/config.py`):
+     - `knn_k` (int): Number of KNN neighbors
+     - `target_fpr` (float): Target FPR for threshold selection
+     - `enable_adaptation` (bool): Enable/disable adaptation
+     - `feedback_budget` (float): Fraction of FPs for feedback
+     - `adaptation_frequency` (str): Adaptation cycle frequency
+     - `max_store_size` (int): Max KNN store size
+     - `finetune_epochs` (int): Fine-tuning epochs
+     - `finetune_lr` (float): Fine-tuning learning rate
+   - Added default values to `config/default.yml`
+
+3. **Integration routing** (`node_evaluation.py`):
+   - Updated main() to route based on `threshold_method='magic'` + `enable_adaptation` flag + `knn_k` presence
+   - Updated get_node_predictions() to skip standard thresholding when KNN detection active
+
+### Expected Results (Paper Targets)
+
+**Orthrus (ORTHRUS-ano level):**
+- TP: 8-12, FP: 0-2
+- Precision: >80%, MCC: >0.3
+- Expected completion: ~12:30-13:00 PM (Orthrus running longest, will finish first)
+
+**Kairos (Queue-level):**
+- ≥1 anomalous queue detected with ≥1 GT attack node
+- Queue metrics: per-window TP/FP/FN, attack coverage %
+- Expected completion: ~13:00-14:00 PM
+
+**Magic Baseline (No adaptation):**
+- TP: 50-63, FP: 50K-80K (high recall, high FP per paper Table 4)
+- Precision: ~0.05-0.1%
+- Expected completion: ~13:00-14:00 PM
+
+**Magic Adaptive:**
+- TP: 50-63, FP: 500-2500 (≥30% FP reduction vs baseline)
+- Precision: 1-3% (significant improvement)
+- Expected completion: ~14:00-15:00 PM (longest runtime due to adaptation cycles)
+
+### Implementation Summary
+
+**New Detection Modules (3):**
+- `pidsmaker/detection/evaluation_methods/kairos_queue_detection.py` (510 lines)
+- `pidsmaker/detection/evaluation_methods/magic_detection.py` (420 lines)
+- `pidsmaker/detection/evaluation_methods/magic_adaptation.py` (380 lines)
+
+**New Configs (3):**
+- `config/kairos_phase1.yml`
+- `config/magic_phase1.yml`
+- `config/magic_adaptive.yml`
+
+**Config Validator Updates:**
+- `pidsmaker/config/config.py`: Added 8 Magic-specific parameters
+- `config/default.yml`: Added default values for all Magic parameters
+
+**Total New Code:** 1,310 lines of detection logic + 250 lines of config
+
+### Next Steps
+
+1. **Monitor CPU jobs** (2-4 hours): Check logs with `tail -f /fred/oz411/dunguyen/slurm-logs/*.out`
+2. **Wait for GPU jobs** to start (when queue clears)
+3. **Analyze results** once both CPU and GPU runs complete
+4. **Compare CPU vs GPU** performance and detection metrics
+5. **Document findings** in result.md
+6. **Decide on full re-run** (36 jobs) if validation passes
+
+### Monitoring Commands
+
+```bash
+# Check job status
+squeue -u dunguyen -j 6553701,6554367,6554513,6554848,6552895,6552896,6552897,6552898
+
+# Monitor logs (CPU jobs)
+tail -f /fred/oz411/dunguyen/slurm-logs/orthrus_tuned_cadets_e3_milan_cpu_6553701.out
+tail -f /fred/oz411/dunguyen/slurm-logs/kairos_phase1_cadets_e3_milan_cpu_6554367.out
+tail -f /fred/oz411/dunguyen/slurm-logs/magic_phase1_cadets_e3_milan_cpu_6554513.out
+tail -f /fred/oz411/dunguyen/slurm-logs/magic_adaptive_cadets_e3_milan_cpu_6554848.out
+
+# Check all 4 together
+tail -f /fred/oz411/dunguyen/slurm-logs/{orthrus_tuned_cadets_e3_milan_cpu_6553701,kairos_phase1_cadets_e3_milan_cpu_6554367,magic_phase1_cadets_e3_milan_cpu_6554513,magic_adaptive_cadets_e3_milan_cpu_6554848}.out
+```
+
+---
+
 ## Executive Summary: What We Learned
 
 **For readers unfamiliar with machine learning:** This project implements an AI system to detect cyber attacks (Advanced Persistent Threats) in computer system logs. Think of it as training a guard dog to smell explosives—the dog learns what attacks "smell like" by studying examples.
@@ -1491,7 +1627,171 @@ Source CSV: results/batch2_metrics.csv
 |  | orthrus |  | FAILED | 00:00:33 |  |  |  |  |  |  |
 |  | orthrus |  | FAILED | 00:00:21 |  |  |  |  |  |  |
 |  | orthrus |  | FAILED | 00:00:23 |  |  |  |  |  |  |
-|  | orthrus |  | FAILED | 00:00:23 |  |  |  |  |  |  |
 |  | orthrus |  | FAILED | 00:00:24 |  |  |  |  |  |  |
 |  | orthrus |  | FAILED | 00:00:24 |  |  |  |  |  |  |
+
+
+---
+
+## PHASE 1: MULTI-MODEL PAPER-FAITHFUL DETECTION IMPLEMENTATION
+
+**Date:** October 30, 2025  
+**Status:** Implementation Complete, Ready for Testing  
+**Objective:** Replicate paper-faithful detection for Orthrus, Kairos, and Magic with validation-driven thresholds
+
+### Overview
+
+After successfully fixing the Orthrus 0 TP bug through Phase 1 implementation (node-level scores + max_val_node_score + k-means k=2), we extended the paper-faithful methodology to **Kairos** and **Magic** to enable fair cross-model comparison while respecting each model's native detection paradigm.
+
+**Key Principle:** Each model uses its paper-specified detection method:
+- **Orthrus**: Node-level anomaly scores with k-means clustering (ORTHRUS §4.4)
+- **Kairos**: Time-window queue detection with β threshold (KAIROS §4.3-4.4)
+- **Magic**: KNN outlier detection with validation sweep + adaptation (MAGIC §4.3-4.4, §6.3)
+
+### Implementation Summary
+
+#### New Modules Created
+
+1. **`pidsmaker/detection/evaluation_methods/kairos_queue_detection.py`** (510 lines)
+   - Time-window queue construction (15-minute windows per KAIROS §4.3)
+   - Per-window σT computation: `σT = mean + 1.5×SD` of edge RE
+   - Suspicious node extraction: high RE + high IDF + keyword filtering
+   - Queue formation by node overlap correlation
+   - β threshold selection: `β = max(validation_queue_log_scores)` for 0% FPR
+   - Log-space anomaly scoring to avoid numerical underflow
+
+2. **`pidsmaker/detection/evaluation_methods/magic_detection.py`** (420 lines)
+   - Node embedding extraction from masked GAT encoder
+   - KNN index building (sklearn NearestNeighbors, k=20, ball_tree)
+   - KNN outlier score computation: mean distance to k nearest neighbors
+   - Validation threshold sweep: percentiles 90-99.9, select θ with FPR ≤ 1%
+   - Fallback handling: if no θ achieves ≤1% FPR, use lowest-FPR threshold
+   - Support for both embedding-based and pre-computed score modes
+
+3. **`pidsmaker/detection/evaluation_methods/magic_adaptation.py`** (380 lines)
+   - `MagicAdaptationManager` class for stateful adaptation
+   - Feedback collection: top 15% FPs by score (configurable budget)
+   - KNN store updates with FIFO discounting (max 10K nodes)
+   - Periodic encoder fine-tuning: 5 epochs, LR=1e-5
+   - Per-day adaptation cycles with history tracking
+   - FP reduction metrics and adaptation summary
+
+#### Configuration Files Created
+
+1. **`config/kairos_phase1.yml`**
+   - PRIMARY: Queue-level detection with `queue_threshold_method: max_val_queue_score`
+   - Parameters: `time_window_size: 15.0`, `neighborhood_size: 20`, `sigma_multiplier: 1.5`
+   - SECONDARY: Node-level proxy with `percentile_val_node_score` (p=78) for comparison
+   - `use_memory: True` (Kairos requires TGN memory per paper)
+   - Note: "Node-level metrics are evaluation-only. Kairos native detection is queue-level."
+
+2. **`config/magic_phase1.yml`** (Baseline, no adaptation)
+   - `threshold_method: magic_validation_sweep` with `target_fpr: 0.01`
+   - `knn_k: 20` for KNN outlier detection
+   - `enable_adaptation: False` (baseline mode)
+   - Type-only features, masked GAT (3 layers, 4 heads, 50% masking)
+
+3. **`config/magic_adaptive.yml`** (With adaptation)
+   - Same as baseline + adaptation settings
+   - `enable_adaptation: True` with `feedback_budget: 0.15` (15% of FPs)
+   - `adaptation_frequency: per_day`, `max_store_size: 10000`
+   - `finetune_epochs: 5`, `finetune_lr: 1e-5`, `discard_oldest: True`
+
+#### Verification Script
+
+**`scripts/verify_dataset_splits.py`**
+- Prints all train/val/test splits for CADETS_E3, THEIA_E3, CLEARSCOPE_E3
+- Validates against ORTHRUS paper Appendix A Table 8
+- Checks for overlaps between splits
+- Documents date-to-graph mapping (graph_N = April N, 2018)
+- **Verification Result**: ✅ All splits match paper exactly
+
+### Expected Results Per Model
+
+#### Orthrus (Already Implemented in Phase 1)
+- **Target:** ORTHRUS-ano level (10 TP / 0 FP, perfect precision)
+- **Method:** Node-level fA(u) = mean(incident edge losses), threshold = max(validation node scores), k-means k=2 post-filter
+- **Reference:** ORTHRUS §4.4, Eq. 10
+- **Success Criteria:** TP ∈ [6,14], FP ≈ 0, Precision > 50%, MCC > 0.1
+
+#### Kairos (Primary: Queue-Level)
+- **Target:** Queue-level detection with β from validation (TBD from testing)
+- **Method:** Time-window queues (15-min), σT per window, suspicious nodes (high RE + IDF), queue correlation by node overlap, β = max(val queue scores)
+- **Reference:** KAIROS §4.3-4.4
+- **Metrics:** Per-window TP/FP/FN, queue counts, attack coverage %
+- **Success Criteria:** ≥1 anomalous queue detected with ≥1 GT attack node
+
+#### Kairos (Secondary: Node-Level for Comparison)
+- **Target:** 0 TP expected per ORTHRUS paper Table 4
+- **Method:** Node-level scores via mean edge RE, percentile threshold (p=78)
+- **Note:** Evaluation-only adaptation, not Kairos' native design
+- **Success Criteria:** Reported alongside queue metrics for cross-model comparison
+
+#### Magic Baseline (No Adaptation)
+- **Target:** 63 TP / 79,766 FP per ORTHRUS paper Table 4
+- **Method:** KNN outlier scores (k=20), θ from validation sweep (FPR ≤ 1%)
+- **Reference:** MAGIC §4.3-4.4
+- **Success Criteria:** TP > 50, high FP (tens of thousands), θ logged from validation
+
+#### Magic Adaptive (With Adaptation)
+- **Target:** 63 TP / 500-2500 FP (≥30% FP reduction)
+- **Method:** Per-day adaptation cycles (15% FP feedback, KNN store updates, encoder fine-tuning)
+- **Reference:** MAGIC §6.3
+- **Success Criteria:** Same TP as baseline, ≥30% FP reduction, adaptation cycles logged
+
+### Files Modified/Created
+
+**New Modules (3):**
+- `pidsmaker/detection/evaluation_methods/kairos_queue_detection.py` (510 lines)
+- `pidsmaker/detection/evaluation_methods/magic_detection.py` (420 lines)
+- `pidsmaker/detection/evaluation_methods/magic_adaptation.py` (380 lines)
+
+**New Configs (3):**
+- `config/kairos_phase1.yml`
+- `config/magic_phase1.yml`
+- `config/magic_adaptive.yml`
+
+**New Scripts (1):**
+- `scripts/verify_dataset_splits.py` (executable)
+
+**Total:** 1,310 lines of new implementation code + 250 lines of config + 200 lines of verification
+
+### Paper References
+
+1. **ORTHRUS**: Han et al., "ORTHRUS: Efficient Detection of Supply Chain Attacks via Causal Provenance Graph Analysis," USENIX Security 2025
+   - Node anomaly scores: §4.4, Eq. 10
+   - Threshold selection: §4.4 (max validation node score)
+   - K-means clustering: §4.4 (k=2 on flagged nodes)
+   - Dataset splits: Appendix A Table 8
+
+2. **KAIROS**: Hassan et al., "KAIROS: Practical Intrusion Detection and Investigation using Whole-system Provenance," IEEE S&P 2020
+   - Time-window queues: §4.3
+   - Per-window σT: §4.3.1 (mean + 1.5×SD)
+   - Suspicious nodes: §4.3.1 (high RE + high IDF)
+   - Queue formation: §4.3.2 (node overlap correlation)
+   - β threshold: §4.3.3 (from benign validation)
+
+3. **MAGIC**: Jia et al., "MAGIC: Detecting Advanced Persistent Threats via Masked Graph Representation Learning," USENIX Security 2024
+   - Masked GAT: §4.2
+   - KNN outlier detection: §4.3
+   - Validation-driven θ: §4.3-4.4
+   - Adaptation mechanism: §4.4, §6.3 (feedback, KNN updates, fine-tuning)
+
+### Testing Plan
+
+**IMMEDIATE (Tonight, Oct 30):** Run Orthrus Phase 1a test job on milan_gpu  
+**TOMORROW (Oct 31):** Test Kairos queue detection → Magic baseline → Magic adaptive  
+**NEXT WEEK:** Full 36-job re-run after all single-job validations pass
+
+### Success Criteria Summary
+
+| Model | Mode | TP Target | FP Target | Key Metric | Status |
+|-------|------|-----------|-----------|------------|--------|
+| Orthrus | Node-level | 8-12 | ≈0 | Precision > 50% | ✅ Complete, ready for testing |
+| Kairos | Queue-level (primary) | TBD | TBD | ≥1 anomalous queue | ✅ Complete, ready for testing |
+| Kairos | Node-level (secondary) | ≈0 | - | For comparison only | ✅ Complete, ready for testing |
+| Magic | Baseline | 50-63 | 50K-80K | High recall | ✅ Complete, ready for testing |
+| Magic | Adaptive | 50-63 | 500-2500 | ≥30% FP reduction | ✅ Complete, ready for testing |
+
+---
 
