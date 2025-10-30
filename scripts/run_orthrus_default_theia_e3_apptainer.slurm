@@ -22,8 +22,6 @@ export PYTHONUNBUFFERED=1
 
 # Job-specific paths
 JOB_ID=$SLURM_JOB_ID
-# Use unique port per job to avoid conflicts when multiple jobs run on same node
-PG_PORT=$((55432 + (JOB_ID % 1000)))
 # Prefer node-local scratch if available to avoid shared /fred quota
 # Priority: $SLURM_TMPDIR (if set), then /scratch/$USER/$JOB_ID, then a non-/tmp $TMPDIR, else fallback to /fred
 TMPDIR_BASE=""
@@ -37,25 +35,11 @@ else
     TMPDIR_BASE="/fred/oz411/dunguyen/tmp"
 fi
 TMPDIR="${TMPDIR_BASE}/pidsmaker_${JOB_ID}"
-PGDATA="${TMPDIR}/pgdata"
 ARTIFACT_DIR="${TMPDIR}/artifacts"
-PG_LOG="${TMPDIR}/postgres.log"
 RUN_LOG="${TMPDIR}/run.log"
 
 # Create directories
-mkdir -p "${TMPDIR}" "${PGDATA}" "${ARTIFACT_DIR}"
-
-# Function to stop PostgreSQL on exit
-    cleanup() {
-    echo "Cleaning up..."
-    if [ -f "${PGDATA}/postmaster.pid" ]; then
-        /fred/oz411/dunguyen/.conda/envs/pg17/bin/pg_ctl -D "${PGDATA}" stop -m fast || true
-    fi
-    # Per user request: Do NOT persist large tarballs to shared storage and do NOT remove TMPDIR here.
-    # This avoids filling /fred or any shared filesystem when node-local scratch is limited.
-    echo "NOTE: Skipping tarball creation and TMPDIR deletion (logs remain in ${TMPDIR})."
-}
-trap cleanup EXIT
+mkdir -p "${TMPDIR}" "${ARTIFACT_DIR}"
 
 # Ensure Apptainer is available on compute node
 if ! command -v apptainer >/dev/null 2>&1; then
@@ -63,47 +47,9 @@ if ! command -v apptainer >/dev/null 2>&1; then
 fi
 command -v apptainer || { echo "ERROR: apptainer not found in PATH" >&2; exit 127; }
 
-# Initialize PostgreSQL with UTF-8
-echo "Initializing PostgreSQL..."
-/fred/oz411/dunguyen/.conda/envs/pg17/bin/initdb -D "${PGDATA}" \
-    --encoding=UTF8 \
-    --locale=en_US.UTF-8 \
-    --auth=trust \
-    --username=postgres
-
-# Start PostgreSQL
-echo "Starting PostgreSQL on port ${PG_PORT}..."
-/fred/oz411/dunguyen/.conda/envs/pg17/bin/pg_ctl -D "${PGDATA}" -l "${PG_LOG}" -o "-p ${PG_PORT}" start
-
-# Wait for PostgreSQL to be ready
-sleep 10
-for i in {1..30}; do
-    if /fred/oz411/dunguyen/.conda/envs/pg17/bin/pg_ctl -D "${PGDATA}" status > /dev/null 2>&1; then
-        echo "PostgreSQL is ready."
-        break
-    fi
-    echo "Waiting for PostgreSQL... ($i/30)"
-    sleep 2
-done
-
-# Create database and restore from dump
-echo "Creating database and restoring from dump..."
-/fred/oz411/dunguyen/.conda/envs/pg17/bin/createdb -h 127.0.0.1 -p ${PG_PORT} -U postgres theia_e3 || echo "Database theia_e3 may already exist"
-
-echo "Restoring database from /fred/oz411/dunguyen/data/theia_e3.dump..."
-# Check available free space in TMPDIR before restoring large DB dump.
-# If free space is below MIN_TMP_BYTES, fail early with a clear message.
-MIN_TMP_BYTES=$((10 * 1024 * 1024 * 1024))  # 10 GiB
-avail_bytes=$(df -PB1 "${TMPDIR}" | awk 'END{print $4+0}') || avail_bytes=0
-echo "TMPDIR=${TMPDIR} available bytes=${avail_bytes} threshold=${MIN_TMP_BYTES}"
-if [ "${avail_bytes}" -lt "${MIN_TMP_BYTES}" ]; then
-    echo "ERROR: Not enough free space in ${TMPDIR} to restore the database (need >= ${MIN_TMP_BYTES} bytes)." >&2
-    echo "Suggest: set SLURM_TMPDIR to a node-local location or increase scratch allocation." >&2
-    exit 1
-fi
-
-/fred/oz411/dunguyen/.conda/envs/pg17/bin/pg_restore -h 127.0.0.1 -p ${PG_PORT} -U postgres -d theia_e3 \
-    /fred/oz411/dunguyen/data/theia_e3.dump || echo "Restore may have completed with warnings"
+# Database connection info (shared PostgreSQL on oz411)
+echo "Connecting to shared PostgreSQL at 127.0.0.1:5432..."
+echo "Database: theia_e3"
 
 # Run PIDSMaker inside Apptainer
 echo "Running PIDSMaker..."
@@ -114,10 +60,11 @@ apptainer exec --nv \
     /fred/oz411/dunguyen/containers/pidsmaker_cuda117.sif \
     bash -lc "set -o pipefail; cd /opt/PIDSMaker && \
     python -m pidsmaker.main orthrus THEIA_E3 \
-        --artifact_dir_in_container ${ARTIFACT_DIR} \
+        --artifact_dir ${ARTIFACT_DIR} \
         --restart_from_scratch \
         --force_restart=build_graphs \
-        --db_port ${PG_PORT} \
+        --database_host 127.0.0.1 \
+        --database_port 5432 \
         --wandb --project pidsmaker-theia \
         2>&1 | tee ${RUN_LOG}"
 PY_EXIT=$?

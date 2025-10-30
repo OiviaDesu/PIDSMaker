@@ -24,34 +24,9 @@ from .config import (
     Arg,
 )
 
-DEFAULT_ROOT_ARTIFACT_DIR = "/home/artifacts/"  # Destination folder (in the container) for generated files. Will be created if doesn't exist.
 ROOT_PROJECT_PATH = pathlib.Path(__file__).parent.parent.parent.resolve()
 ROOT_GROUND_TRUTH_DIR = os.path.join(ROOT_PROJECT_PATH, "Ground_Truth/")
 
-
-DATABASE_DEFAULT_CONFIG = {
-    "host": "127.0.0.1",  # Host machine where the db is located (node-local default)
-    "user": "postgres",  # Database user
-    "password": "postgres",  # The password to the database user
-    "port": "55432",  # The port number for node-local Postgres
-}
-# Marker file name used to signal a finished task directory
-TASK_FINISHED_FILE = "TASK_FINISHED"
-
-
-def set_task_to_done(task_path: str):
-    """
-    Create a small marker file in the given task directory to signal the task completed.
-    Other parts of the pipeline detect this to skip recomputation.
-    """
-    try:
-        os.makedirs(task_path, exist_ok=True)
-        marker = os.path.join(task_path, TASK_FINISHED_FILE)
-        with open(marker, "w") as f:
-            f.write("done")
-    except Exception:
-        # Don't crash the pipeline on marker write errors
-        pass
 # ================================================================================
 
 
@@ -60,7 +35,7 @@ def get_default_cfg(args):
     Inits the shared cfg object with default configurations.
     """
     cfg = CN()
-    cfg._artifact_dir = args.artifact_dir_in_container or DEFAULT_ROOT_ARTIFACT_DIR
+    cfg._artifact_dir = args.artifact_dir
 
     cfg._test_mode = args.test_mode
     cfg._debug = not args.wandb
@@ -81,26 +56,10 @@ def get_default_cfg(args):
 
     # Database: we simply create variables for all configurations described in the dict
     cfg.database = CN()
-    for attr, value in DATABASE_DEFAULT_CONFIG.items():
-        setattr(cfg.database, attr, value)
-
-    # Optional database overrides from environment or CLI
-    # Env vars take precedence, then CLI, then defaults
-    db_host_env = os.getenv("PIDSM_DB_HOST") or os.getenv("DB_HOST")
-    db_port_env = os.getenv("PIDSM_DB_PORT") or os.getenv("DB_PORT") or os.getenv("PGPORT")
-
-    db_host_arg = getattr(args, "db_host", None)
-    db_port_arg = getattr(args, "db_port", None)
-
-    if db_host_env:
-        cfg.database.host = db_host_env
-    elif db_host_arg:
-        cfg.database.host = db_host_arg
-
-    if db_port_env:
-        cfg.database.port = str(db_port_env)
-    elif db_port_arg:
-        cfg.database.port = str(db_port_arg)
+    cfg.database.host = args.database_host
+    cfg.database.user = args.database_user
+    cfg.database.password = args.database_password
+    cfg.database.port = args.database_port
 
     # Dataset: we simply create variables for all configurations described in the dict
     set_dataset_cfg(cfg, args.dataset)
@@ -120,7 +79,7 @@ def get_default_cfg(args):
     # Experiments
     create_cfg_recursive(cfg, EXPERIMENTS_CONFIG)
 
-    return parser
+    return cfg
 
 
 def set_dataset_cfg(cfg, dataset):
@@ -147,7 +106,7 @@ def get_runtime_required_args(return_unknown_args=False, args=None):
     )
     parser.add_argument("--wandb", action="store_true", help="Whether to submit logs to wandb")
     parser.add_argument(
-        "--project", type=str, default="", help="Name of the wandb project (optional)"
+        "--project", type=str, default="PIDSMaker", help="Name of the wandb project"
     )
     parser.add_argument("--exp", type=str, default="", help="Name of the experiment")
     parser.add_argument(
@@ -174,28 +133,26 @@ def get_runtime_required_args(return_unknown_args=False, args=None):
     parser.add_argument(
         "--tuning_file_path", default="", help="If set, use the given YML path for tuning"
     )
+    parser.add_argument(
+        "--database_host", default="tooarrana2", help="Host machine where the db is located"
+    )
+    parser.add_argument(
+        "--database_user", default="postgres", help="Database user to connect to the database"
+    )
+    parser.add_argument(
+        "--database_password", default="postgres", help="The password to the database user"
+    )
+    parser.add_argument(
+        "--database_port", default="5432", help="The port number for Postgres (default: 5432)"
+    )
     parser.add_argument("--sweep_id", default="", help="ID of a wandb sweep for multi-agent runs")
     parser.add_argument(
-        "--artifact_dir_in_container", default="", help="ID of a wandb sweep for multi-agent runs"
+        "--artifact_dir", default="/home/artifacts/", help="Destination folder for generated files"
     )
     parser.add_argument(
         "--test_mode",
         action="store_true",
         help="Whether to run the framework as in functional tests.",
-    )
-
-    # Database overrides (optional): allow node-local DB host/port to be set from CLI
-    parser.add_argument(
-        "--db_host",
-        type=str,
-        default=None,
-        help="Override database host (defaults to 127.0.0.1).",
-    )
-    parser.add_argument(
-        "--db_port",
-        type=str,
-        default=None,
-        help="Override database port (defaults to 55432).",
     )
 
     # Script-specific args
@@ -499,7 +456,7 @@ def get_yml_cfg(args):
 
     # Inits with default configurations
     cfg = get_default_cfg(args)
-
+    
     # Checks that all configurations are valid and merge yml file to cfg
     yml_file = get_yml_file(args.model)
     merge_cfg_and_check_syntax(cfg, yml_file)
@@ -803,7 +760,25 @@ def add_cfg_args_to_parser(cfg, parser):
         dtype = str2bool if is_bool else v
         parser.add_argument(f"--{k}", type=dtype)
 
-    return cfg
+    return parser
+
+
+def get_darpa_tc_node_feats_from_cfg(cfg):
+    features = cfg.preprocessing.build_graphs.node_label_features
+    return {
+        "subject": list(map(lambda x: x.strip(), features.subject.split(","))),
+        "file": list(map(lambda x: x.strip(), features.file.split(","))),
+        "netflow": list(map(lambda x: x.strip(), features.netflow.split(","))),
+    }
+
+
+TASK_FINISHED_FILE = "done.txt"
+
+
+def set_task_to_done(task_path: str):
+    with open(os.path.join(task_path, TASK_FINISHED_FILE), "w") as f:
+        f.write("Task done")
+    print(f"Task done: {task_path}\n")
 
 
 def get_days_from_cfg(cfg):
@@ -822,39 +797,6 @@ def get_days_from_cfg(cfg):
         )
 
     return days
-
-
-def get_darpa_tc_node_feats_from_cfg(cfg):
-    """
-    Return a mapping of DARPA node types to the list of label fields to use when
-    building node labels. We provide sensible defaults so preprocessing can
-    import this helper even if the CLI/YML hasn't set explicit values.
-
-    Expected return shape:
-      { 'subject': ['path','cmd_line'], 'file': ['path'], 'netflow': ['remote_ip','remote_port'] }
-    """
-    # Try to read the user-provided config first
-    try:
-        node_label_cfg = cfg.preprocessing.build_graphs.node_label_features
-        if node_label_cfg is not None:
-            out = {}
-            # For each expected node type, fall back to defaults if missing
-            out["subject"] = (
-                getattr(node_label_cfg, "subject", None) or ["path", "cmd_line"]
-            )
-            out["file"] = getattr(node_label_cfg, "file", None) or ["path"]
-            out["netflow"] = getattr(node_label_cfg, "netflow", None) or ["remote_ip", "remote_port"]
-            return out
-    except Exception:
-        # If cfg is not fully initialized or missing attributes, fall back to defaults
-        pass
-
-    # Default mapping for DARPA TC datasets
-    return {
-        "subject": ["path", "cmd_line"],
-        "file": ["path"],
-        "netflow": ["remote_ip", "remote_port"],
-    }
 
 
 def get_uncertainty_methods_to_run(cfg):

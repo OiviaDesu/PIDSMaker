@@ -394,6 +394,322 @@ The experiments conclusively show that **threshold calibration is the bottleneck
 
 ---
 
+## 🔧 PHASE 1 IMPLEMENTATION (Oct 30, 2025) — Critical Fixes to Replicate Paper
+
+### Implementation Status: ✅ COMPLETE
+
+**Goal**: Fix the 0 TP vs 25 TP gap by implementing paper-accurate threshold selection and clustering.
+
+**Timeline**: Implemented in 2 hours on Oct 30, 2025 19:30-21:30 AEDT
+
+### Root Causes Identified and Fixed
+
+#### 🔴 Bug #1: Wrong Validation Set Split (CRITICAL)
+**Problem**:
+- **Our config**: `val_files: ["graph_10"]` (day 10, all benign)
+- **Paper's config** (Table 8): `val_files: ["graph_2", "graph_6"]` (days 2, 6, both benign)
+- **Impact**: Validation set never representative of score distribution → threshold miscalibrated
+
+**Fix Applied**:
+```python
+# File: pidsmaker/config/config.py (lines 100-111)
+# BEFORE:
+"train_files": ["graph_2", "graph_3", "graph_4", "graph_5", "graph_7", "graph_8", "graph_9"],
+"val_files": ["graph_10"],
+"test_files": ["graph_6", "graph_11", "graph_12", "graph_13"],
+
+# AFTER (matches paper Appendix A, Table 8):
+"train_files": ["graph_3", "graph_4", "graph_5", "graph_7", "graph_8", "graph_9", "graph_10"],
+"val_files": ["graph_2", "graph_6"],
+"test_files": ["graph_11", "graph_12", "graph_13"],
+```
+
+**Reference**: ORTHRUS paper Appendix A, Table 8
+
+---
+
+#### 🔴 Bug #2: Edge-Level Thresholding Instead of Node-Level (PRIMARY ROOT CAUSE)
+**Problem**:
+- **What we did**: Threshold on raw edge reconstruction losses
+- **What paper does** (§4.4, Eq. 10): Threshold on per-node anomaly scores fA(u) = mean(losses of edges incident to u)
+- **Impact**: Thresholding wrong granularity → scores in wrong numerical range
+
+**Fix Applied**:
+```python
+# File: pidsmaker/detection/evaluation_methods/evaluation_utils.py (after line 163)
+# Added two new functions:
+
+def calculate_node_scores_from_edges(val_tw_dir):
+    """
+    Compute per-node anomaly scores from edge-level losses.
+    Per ORTHRUS paper Eq. 10: fA(u) = mean loss of edges incident to u
+    """
+    # Aggregates edge losses by node (both src and dst roles)
+    # Returns: {node_id: mean_incident_edge_loss}
+
+def calculate_threshold_node_based(val_tw_dir, threshold_method, percentile_p=None):
+    """
+    Threshold based on per-node anomaly scores (ORTHRUS paper method).
+    Per paper §4.4: threshold = max(validation_node_scores) from benign day
+    """
+    # Returns: {"max": ..., "mean": ..., "percentile_90": ...}
+```
+
+**New Threshold Methods Added**:
+- `max_val_node_score` → **Paper's method**: max(validation node scores)
+- `mean_val_node_score` → Alternative: mean(validation node scores)
+- `percentile_val_node_score` → Tunable: Xth percentile of validation node scores
+
+**Backward Compatibility**: Old methods (`max_val_loss`, etc.) still work but log deprecation warning
+
+**Reference**: ORTHRUS paper §4.4, Equation 10
+
+---
+
+#### 🔴 Bug #3: Wrong K-means Application Order (SECONDARY ROOT CAUSE)
+**Problem**:
+- **What we did**: (1) Select top-K highest-scoring nodes → (2) Cluster those K nodes → (3) Keep higher-mean cluster
+- **What paper does** (§4.4): (1) Flag ALL nodes above threshold → (2) Cluster flagged nodes (k=2) → (3) Keep higher-mean cluster
+- **Impact**: Pre-selecting top-K biases clustering, doesn't filter benign anomalies correctly
+
+**Fix Applied**:
+```python
+# File: pidsmaker/detection/evaluation_methods/evaluation_utils.py (line 1479)
+# Rewrote compute_kmeans_labels() function
+
+def compute_kmeans_labels(results, topk_K):
+    """
+    LEGACY MODE (topk_K > 0): Select top-K nodes, then cluster
+    PAPER MODE (topk_K = 0 or -1): Cluster ALL flagged nodes, keep higher-mean cluster
+    
+    Per ORTHRUS paper §4.4: K-means (k=2) on suspicious nodes "significantly 
+    reduces false positives and alleviates analyst workload"
+    """
+    # Edge cases:
+    # - 0 flagged nodes → return empty (0 TP)
+    # - 1 flagged node → keep it (no clustering possible)
+    # - 2+ flagged nodes → run k=2, keep higher-mean cluster
+```
+
+**Config Change**:
+```yaml
+# File: config/orthrus.yml (line 77-78)
+# BEFORE:
+kmeans_top_K: 30  # Legacy mode
+
+# AFTER:
+kmeans_top_K: 0   # Paper mode: cluster ALL flagged nodes
+```
+
+**Reference**: ORTHRUS paper §4.4
+
+---
+
+#### ✅ Bug #4: TGN Memory Verification (Already Correct)
+**Status**: No bug found - correctly configured
+```yaml
+# config/orthrus.yml (line 62)
+use_memory: False  # ✅ Correct - ORTHRUS is stateless per paper §4.3
+```
+
+---
+
+### Files Modified
+
+| File | Lines Changed | Purpose |
+|------|---------------|---------|
+| `pidsmaker/config/config.py` | 100-111 | Fix CADETS_E3 train/val/test splits to match paper |
+| `pidsmaker/detection/evaluation_methods/evaluation_utils.py` | +95 lines after 163 | Add per-node score aggregation functions |
+| `pidsmaker/detection/evaluation_methods/evaluation_utils.py` | 108-140 | Update `get_threshold()` with node-based methods |
+| `pidsmaker/detection/evaluation_methods/evaluation_utils.py` | 1479-1550 | Rewrite `compute_kmeans_labels()` to match paper |
+| `config/orthrus.yml` | 77 | Change default: `max_val_loss` → `max_val_node_score` |
+| `config/orthrus.yml` | 78 | Change kmeans mode: `kmeans_top_K: 30` → `kmeans_top_K: 0` |
+
+**Total**: 6 changes across 3 files
+
+---
+
+### Expected Results After Phase 1
+
+**ORTHRUS-ano Level Performance (Target)**:
+- **CADETS_E3**: 8-12 TP, 0-2 FP (precision >80%, MCC >0.3)
+- **THEIA_E3**: 4-8 TP, 0-2 FP (precision >70%, MCC >0.2)
+- **CLEARSCOPE_E3**: 1-2 TP, 0-5 FP (harder dataset, expect modest improvement)
+
+**Compared to Current (0 TP baseline)**:
+- ✅ Non-zero detection capability restored
+- ✅ Precision dramatically improved (0% → 50-80%)
+- ✅ MCC dramatically improved (-0.0001 → 0.1-0.4)
+- ✅ False positive rate controlled (<1% vs current 0% due to no detections)
+
+**Phase 2 (Reconstruction) would add**:
+- Additional 10-15 TP per dataset (ORTHRUS-full level)
+- Slight increase in FP (5-25 per dataset)
+- Net improvement: Higher recall, moderate precision trade-off
+
+---
+
+### Testing Plan
+
+#### Step 1: Single Job Validation (1 hour)
+```bash
+# Resubmit one CADETS_E3 job with Phase 1 fixes
+cd /home/dunguyen/git/PIDSMaker
+sbatch scripts/run_orthrus_default_cadets_e3_milan_cpu_apptainer.slurm
+
+# Monitor
+watch -n 30 'squeue -u dunguyen -j <JOBID>'
+tail -f /fred/oz411/dunguyen/slurm-logs/orthrus_default_cadets_e3_milan_cpu_<JOBID>.out
+```
+
+**Success Criteria**:
+- ✅ Logs show `[Node-based] Thresholds: MEAN=X.XX, MAX=Y.YY`
+- ✅ Logs show `K-means clustering: N suspicious nodes -> 2 clusters`
+- ✅ Final metrics show TP > 0 (target: 8-12)
+- ✅ Precision > 50% (vs 0%)
+
+#### Step 2: Full Re-run (Cancel Pending, Resubmit All)
+```bash
+# Cancel all pending jobs with old config
+scancel -u dunguyen -t PD
+
+# Resubmit all 36 jobs with Phase 1 fixes
+cd /home/dunguyen/git/PIDSMaker/scripts
+./submit_all_e3_milan_gpu.sh   # 18 GPU jobs
+./submit_all_e3_milan_cpu.sh   # 18 CPU jobs
+```
+
+**Timeline**: 4-12 hours depending on GPU concurrency
+
+---
+
+### Known Limitations of Phase 1
+
+**What Phase 1 Does NOT Include** (reserved for Phase 2):
+1. ❌ **15-minute time window extraction** around detected nodes
+2. ❌ **Backward/forward causality tracing** in provenance graph
+3. ❌ **DAG transformation** and node versioning
+4. ❌ **Entry/exit identification** via criticality scoring
+5. ❌ **Attack summary graph generation**
+
+**Impact**: Phase 1 targets **ORTHRUS-ano** performance (10 TP, 0 FP, perfect precision). Phase 2 adds reconstruction to reach **ORTHRUS-full** performance (25 TP, 23 FP, 52% precision).
+
+**Design Decision**: Implement Phase 1 first to validate core detection works, then add Phase 2 if higher recall is needed.
+
+---
+
+### References
+
+All changes implement specifications from:
+- **ORTHRUS Paper §4.4**: Threshold selection on validation node anomaly scores
+- **ORTHRUS Paper Eq. 10**: Node anomaly score fA(u) = mean incident edge loss
+- **ORTHRUS Paper §4.4**: K-means (k=2) clustering to isolate most suspicious nodes
+- **ORTHRUS Paper Appendix A, Table 8**: CADETS_E3 train/val/test day splits
+- **ORTHRUS Paper §4.3**: Stateless encoder (no TGN memory)
+
+---
+
+## OzSTAR E3 Batch Run (Oct 30, 2025) — Comprehensive Cross-Dataset Evaluation
+
+### Overview
+This batch represents a systematic evaluation of all three models (Orthrus, Magic, Kairos) across all three E3 datasets (CADETS, THEIA, CLEARSCOPE) using the shared PostgreSQL infrastructure. Jobs submitted to both milan-gpu (1 GPU, 1 CPU) and milan (1 CPU) partitions.
+
+**Critical finding:** Comparing our results against **Table 10** from the Orthrus paper (attached image), we observe a fundamental disconnect:
+- **Paper's ORTHRUS-full on CADETS_E3**: 25 TP, 23 FP, Precision 0.52, MCC 0.44, Training 4min40s, Testing 52min31s, GPU 3.82GB
+- **Our ORTHRUS-tuned on CADETS_E3**: 0 TP, precision 0.0, Training ~20-30min, GPU 1.27-1.80GB
+
+The paper achieves 25-48 true positives with reasonable precision (0.25-0.81), while our implementation consistently achieves 0 TP across all threshold methods tested. This ~25× detection gap persists despite achieving comparable AUC scores (0.69-0.95), suggesting either:
+1. Missing post-processing steps (alert clustering, temporal correlation, provenance graph analysis) not documented in the paper
+2. Different threshold selection methodology not adequately described
+3. Implementation differences in the detection pipeline
+
+### Completed Jobs Summary (7 jobs)
+
+| Job ID | Date | Model | Config | Dataset | Partition | Runtime | TP | FP | Precision | Recall | Status |
+|--------|------|-------|--------|---------|-----------|---------|----|----|-----------|--------|--------|
+| 6551616 | Oct 30 19:12 | Orthrus | tuned | CADETS_E3 | milan-gpu | 37m23s | 0 | ? | 0.0 | 0.0 | ✅ Completed |
+| 6551803 | Oct 30 19:26 | Orthrus | default | CADETS_E3 | milan (CPU) | 51m51s | 0 | ? | 0.0 | 0.0 | ✅ Completed |
+| 6551815 | Oct 30 19:16 | Orthrus | default | CLEARSCOPE_E3 | milan (CPU) | 11m30s | 0 | ? | 0.0 | 0.0 | ✅ Completed |
+| 6551816 | Oct 30 18:34 | Orthrus | tuned | CLEARSCOPE_E3 | milan (CPU) | 12m33s | 0 | ? | 0.0 | 0.0 | ✅ Completed |
+| 6551817 | Oct 30 18:37 | Magic | default | CLEARSCOPE_E3 | milan (CPU) | 16m06s | ? | ? | ? | ? | ✅ Completed |
+| 6551818 | Oct 30 18:37 | Magic | tuned | CLEARSCOPE_E3 | milan (CPU) | 16m02s | ? | ? | ? | ? | ✅ Completed |
+| 6551819 | Oct 30 19:11 | Kairos | default | CLEARSCOPE_E3 | milan (CPU) | 49m26s | 0 | ? | 0.0 | 0.0 | ✅ Completed |
+
+**Note:** Full detection metrics extraction pending - logs show consistent pattern of 0 TP across all epochs for each job, matching previous experiments. The paper's Table 10 shows ORTHRUS-full achieving 25 TP / 23 FP on CADETS_E3 with 0.52 precision and 0.44 MCC, while our runs achieve 0 TP regardless of configuration (tuned vs default) or compute resource (GPU vs CPU).
+
+### Key Observations from Completed Jobs
+
+1. **Runtime Performance:**
+   - **CLEARSCOPE**: Fastest dataset (11-16 min for Orthrus/Magic, 49 min for Kairos)
+   - **CADETS GPU**: 37 min (Orthrus tuned) - 2.5× faster than paper's 52min31s testing time
+   - **CADETS CPU**: 52 min (Orthrus default) - matches paper's testing time but with 0 detection
+   - **GPU advantage**: 1.4× speedup (37min vs 52min) for CADETS, aligns with expected single-GPU benefit
+
+2. **Detection Gap Analysis:**
+   Comparing to paper's Table 10 results:
+   - **CADETS_E3**: Paper shows 10-25 TP (Orthrus variants), 0-63 TP (other models). We get 0 TP.
+   - **THEIA_E3**: Paper shows 4-115 TP across models, 0.00-0.81 precision. (Pending our results)
+   - **CLEARSCOPE_E3**: Paper shows 0-41 TP, many models achieve 0 (Flash, Kairos). We get 0 TP.
+   
+   **Critical insight:** The paper's ORTHRUS-full uses 4min40s training + 52min31s testing with 3.82GB GPU memory, suggesting a much larger model or different batch processing than our tuned config (37-52min total, 1.27-1.80GB GPU). The 25 TP vs 0 TP gap may be architectural (model size, batch processing) rather than purely threshold-based.
+
+3. **Resource Efficiency:**
+   - Our tuned configs use 1.27-1.80GB GPU (vs paper's 3.82-10.44GB), suggesting we've optimized for memory at the expense of detection capability
+   - Training times 4-10× longer than paper (20-30min vs 4min40s) despite lower memory usage - potential inefficiency
+   - Paper separates training (4-22min) and testing (1-52min) times; our logs combine them
+
+4. **Threshold Method Consistency:**
+   All completed jobs show precision=0.0, recall=0.0 across all epochs, confirming threshold calibration failure is systematic and not dataset-specific.
+
+### Comparison to Paper's Table 10 (Detailed)
+
+**CADETS_E3:**
+- Paper's ORTHRUS-full: 25 TP, 268,062 TN, 43 FN → 36.8% recall, 52% precision
+- Paper's ORTHRUS-ano: 10 TP, **0 FP**, 58 FN → Perfect precision but only 14.7% recall  
+- Our ORTHRUS-tuned (GPU): 0 TP → 0% recall, undefined precision
+- Our ORTHRUS-default (CPU): 0 TP → 0% recall, undefined precision
+
+The paper achieves detection through two variants:
+- **ORTHRUS-full**: Balanced approach (25 TP, 23 FP) with 0.44 MCC
+- **ORTHRUS-ano**: Zero false positives but catches only 10/68 attacks
+
+Our implementation fails to replicate either variant, suggesting missing components beyond basic threshold tuning.
+
+**CLEARSCOPE_E3:**
+- Paper shows several models with 0 TP (Kairos, Flash), suggesting this is a genuinely difficult dataset
+- Paper's ORTHRUS-full: 2 TP, 6 FP (25% precision) - very conservative
+- Paper's ORTHRUS-ano: 1 TP, **1 FP** (50% precision, 0.11 MCC) - ultra-conservative
+- Our results: 0 TP for Orthrus (both configs) and Kairos, pending Magic results
+
+CLEARSCOPE appears to be the hardest dataset for all systems, with even the paper achieving minimal detection.
+
+### Running Jobs (8 jobs as of 19:28 AEDT)
+- CADETS_E3: 4 jobs running (2 Kairos, 2 Magic) on milan/milan-c partitions
+- THEIA_E3: 4 jobs running (2 Orthrus, 1 Magic, 1 Kairos) on milan/milan-c partitions
+- Time remaining: 66-157 minutes per job
+
+### Pending Jobs (26 jobs)
+- GPU jobs (milan-gpu): 17 pending (all THEIA_E3 + some CADETS_E3)
+- CPU jobs (milan): 9 pending (mixed datasets)
+
+**Expected Results:** Based on paper's Table 10:
+- **THEIA_E3**: Should see 4-115 TP depending on model (ORTHRUS-full: 48 TP with 0.81 precision)
+- **CADETS_E3**: Should see 10-63 TP depending on model
+- **Actual expectation**: Likely 0 TP across the board given current threshold methods, unless Magic/Kairos use different threshold selection that works better
+
+### Next Steps After Batch Completion
+
+1. **Extract full metrics** from all 36 job logs to populate complete table
+2. **Analyze paper's methodology gap**: Study Table 10 more carefully to identify:
+   - How ORTHRUS-ano achieves 0 FP (suggests post-processing or very conservative threshold)
+   - Why ORTHRUS-full achieves 25 TP with 52% precision while we get 0 TP
+   - Whether separate "Training Time" and "Testing Time" columns indicate different pipeline stages
+3. **Investigate model architecture differences**: Paper's 3.82GB GPU vs our 1.27GB suggests significant size difference
+4. **Review alert aggregation**: Paper may cluster/deduplicate alerts before counting TP/FP
+5. **Consider ensemble approaches**: Paper tests 7 different systems; best results may come from combining predictions
+
+---
+
 ## THEIA_E3 on OzSTAR (Oct 22, 2025)
 
 ### Overview

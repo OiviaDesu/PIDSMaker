@@ -100,10 +100,10 @@ detection:
     best_model_selection: best_adp
     used_method: node_evaluation
     node_evaluation:
-      threshold_method: max_val_loss
+      threshold_method: max_val_node_score
       use_dst_node_loss: True
       use_kmeans: True
-      kmeans_top_K: 30
+      kmeans_top_K: 0  # Paper mode: cluster ALL flagged nodes (0 or -1), not top-K
 
 # triage :
 #   tracing:

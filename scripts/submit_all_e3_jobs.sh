@@ -34,18 +34,19 @@ TIME_PROFILE["THEIA_E3"]="02:30:00"
 TIME_PROFILE["CLEARSCOPE_E3"]="02:00:00"
 
 declare -A CPUS_PROFILE
-CPUS_PROFILE["CADETS_E3"]="4"
-CPUS_PROFILE["THEIA_E3"]="4"
-CPUS_PROFILE["CLEARSCOPE_E3"]="4"
+CPUS_PROFILE["CADETS_E3"]="1"
+CPUS_PROFILE["THEIA_E3"]="1"
+CPUS_PROFILE["CLEARSCOPE_E3"]="1"
 
 # Function to generate and submit a single job
 submit_job() {
     local MODEL=$1
     local CONFIG=$2
     local DATASET=$3
+    local PARTITION=$4  # milan-gpu or skylake-gpu
     
     local JOB_NAME="${MODEL}_${CONFIG}_${DATASET,,}"
-    local SCRIPT_FILE="${SCRIPT_DIR}/run_${JOB_NAME}_apptainer.slurm"
+    local SCRIPT_FILE="${SCRIPT_DIR}/run_${JOB_NAME}_${PARTITION//-/_}_apptainer.slurm"
     local MEM="${MEM_PROFILE[$DATASET]}"
     local TIME="${TIME_PROFILE[$DATASET]}"
     local CPUS="${CPUS_PROFILE[$DATASET]}"
@@ -75,15 +76,15 @@ submit_job() {
     cat > "$SCRIPT_FILE" << 'EOFSCRIPT'
 #!/bin/bash
 #SBATCH --job-name=JOB_NAME_PLACEHOLDER
-#SBATCH --partition=milan-gpu
+#SBATCH --partition=PARTITION_PLACEHOLDER
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=CPUS_PLACEHOLDER
 #SBATCH --mem=MEM_PLACEHOLDER
 #SBATCH --gres=gpu:1
 #SBATCH --time=TIME_PLACEHOLDER
-#SBATCH --output=LOG_DIR_PLACEHOLDER/JOB_NAME_PLACEHOLDER_ctn_%j.out
-#SBATCH --error=LOG_DIR_PLACEHOLDER/JOB_NAME_PLACEHOLDER_ctn_%j.err
+#SBATCH --output=LOG_DIR_PLACEHOLDER/JOB_NAME_PLACEHOLDER_PARTITION_SUFFIX_PLACEHOLDER_%j.out
+#SBATCH --error=LOG_DIR_PLACEHOLDER/JOB_NAME_PLACEHOLDER_PARTITION_SUFFIX_PLACEHOLDER_%j.err
 
 set -x
 set -e
@@ -97,8 +98,6 @@ export PYTHONUNBUFFERED=1
 
 # Job-specific paths
 JOB_ID=$SLURM_JOB_ID
-# Use unique port per job to avoid conflicts when multiple jobs run on same node
-PG_PORT=$((55432 + (JOB_ID % 1000)))
 # Prefer node-local scratch if available to avoid shared /fred quota
 # Priority: $SLURM_TMPDIR (if set), then /scratch/$USER/$JOB_ID, then a non-/tmp $TMPDIR, else fallback to /fred
 TMPDIR_BASE=""
@@ -112,25 +111,11 @@ else
     TMPDIR_BASE="/fred/oz411/dunguyen/tmp"
 fi
 TMPDIR="${TMPDIR_BASE}/pidsmaker_${JOB_ID}"
-PGDATA="${TMPDIR}/pgdata"
 ARTIFACT_DIR="${TMPDIR}/artifacts"
-PG_LOG="${TMPDIR}/postgres.log"
 RUN_LOG="${TMPDIR}/run.log"
 
 # Create directories
-mkdir -p "${TMPDIR}" "${PGDATA}" "${ARTIFACT_DIR}"
-
-# Function to stop PostgreSQL on exit
-    cleanup() {
-    echo "Cleaning up..."
-    if [ -f "${PGDATA}/postmaster.pid" ]; then
-        PG_BIN_PLACEHOLDER/pg_ctl -D "${PGDATA}" stop -m fast || true
-    fi
-    # Per user request: Do NOT persist large tarballs to shared storage and do NOT remove TMPDIR here.
-    # This avoids filling /fred or any shared filesystem when node-local scratch is limited.
-    echo "NOTE: Skipping tarball creation and TMPDIR deletion (logs remain in ${TMPDIR})."
-}
-trap cleanup EXIT
+mkdir -p "${TMPDIR}" "${ARTIFACT_DIR}"
 
 # Ensure Apptainer is available on compute node
 if ! command -v apptainer >/dev/null 2>&1; then
@@ -138,47 +123,9 @@ if ! command -v apptainer >/dev/null 2>&1; then
 fi
 command -v apptainer || { echo "ERROR: apptainer not found in PATH" >&2; exit 127; }
 
-# Initialize PostgreSQL with UTF-8
-echo "Initializing PostgreSQL..."
-PG_BIN_PLACEHOLDER/initdb -D "${PGDATA}" \
-    --encoding=UTF8 \
-    --locale=en_US.UTF-8 \
-    --auth=trust \
-    --username=postgres
-
-# Start PostgreSQL
-echo "Starting PostgreSQL on port ${PG_PORT}..."
-PG_BIN_PLACEHOLDER/pg_ctl -D "${PGDATA}" -l "${PG_LOG}" -o "-p ${PG_PORT}" start
-
-# Wait for PostgreSQL to be ready
-sleep 10
-for i in {1..30}; do
-    if PG_BIN_PLACEHOLDER/pg_ctl -D "${PGDATA}" status > /dev/null 2>&1; then
-        echo "PostgreSQL is ready."
-        break
-    fi
-    echo "Waiting for PostgreSQL... ($i/30)"
-    sleep 2
-done
-
-# Create database and restore from dump
-echo "Creating database and restoring from dump..."
-PG_BIN_PLACEHOLDER/createdb -h 127.0.0.1 -p ${PG_PORT} -U postgres DATASET_LC_PLACEHOLDER || echo "Database DATASET_LC_PLACEHOLDER may already exist"
-
-echo "Restoring database from /fred/oz411/dunguyen/data/DATASET_LC_PLACEHOLDER.dump..."
-# Check available free space in TMPDIR before restoring large DB dump.
-# If free space is below MIN_TMP_BYTES, fail early with a clear message.
-MIN_TMP_BYTES=$((10 * 1024 * 1024 * 1024))  # 10 GiB
-avail_bytes=$(df -PB1 "${TMPDIR}" | awk 'END{print $4+0}') || avail_bytes=0
-echo "TMPDIR=${TMPDIR} available bytes=${avail_bytes} threshold=${MIN_TMP_BYTES}"
-if [ "${avail_bytes}" -lt "${MIN_TMP_BYTES}" ]; then
-    echo "ERROR: Not enough free space in ${TMPDIR} to restore the database (need >= ${MIN_TMP_BYTES} bytes)." >&2
-    echo "Suggest: set SLURM_TMPDIR to a node-local location or increase scratch allocation." >&2
-    exit 1
-fi
-
-PG_BIN_PLACEHOLDER/pg_restore -h 127.0.0.1 -p ${PG_PORT} -U postgres -d DATASET_LC_PLACEHOLDER \
-    /fred/oz411/dunguyen/data/DATASET_LC_PLACEHOLDER.dump || echo "Restore may have completed with warnings"
+# Database connection info (shared PostgreSQL on oz411)
+echo "Connecting to shared PostgreSQL at 127.0.0.1:5432..."
+echo "Database: DATASET_LC_PLACEHOLDER"
 
 # Run PIDSMaker inside Apptainer
 echo "Running PIDSMaker..."
@@ -189,10 +136,11 @@ apptainer exec --nv \
     CONTAINER_PLACEHOLDER \
     bash -lc "set -o pipefail; cd /opt/PIDSMaker && \
     python -m pidsmaker.main MODEL_CFG_PLACEHOLDER DATASET_PLACEHOLDER \
-        --artifact_dir_in_container ${ARTIFACT_DIR} \
+        --artifact_dir ${ARTIFACT_DIR} \
         --restart_from_scratch \
         --force_restart=build_graphs \
-        --db_port ${PG_PORT} \
+        --database_host tooarrana2 \
+        --database_port 5432 \
         --wandb --project PROJECT_PLACEHOLDER \
         2>&1 | tee ${RUN_LOG}"
 PY_EXIT=$?
@@ -205,7 +153,10 @@ echo "Job completed successfully."
 EOFSCRIPT
     
     # Replace placeholders
+    local PARTITION_SUFFIX="${PARTITION//-/_}"
     sed -i "s|JOB_NAME_PLACEHOLDER|${JOB_NAME}|g" "$SCRIPT_FILE"
+    sed -i "s|PARTITION_PLACEHOLDER|${PARTITION}|g" "$SCRIPT_FILE"
+    sed -i "s|PARTITION_SUFFIX_PLACEHOLDER|${PARTITION_SUFFIX}|g" "$SCRIPT_FILE"
     sed -i "s|CPUS_PLACEHOLDER|${CPUS}|g" "$SCRIPT_FILE"
     sed -i "s|MEM_PLACEHOLDER|${MEM}|g" "$SCRIPT_FILE"
     sed -i "s|TIME_PLACEHOLDER|${TIME}|g" "$SCRIPT_FILE"
@@ -220,29 +171,30 @@ EOFSCRIPT
     chmod +x "$SCRIPT_FILE"
     
     # Submit the job
-    echo "Submitting job: ${JOB_NAME}"
+    echo "Submitting job: ${JOB_NAME} to ${PARTITION}"
     JOB_ID=$(sbatch --parsable "$SCRIPT_FILE")
     JOB_IDS+=("$JOB_ID")
-    echo "  → Job ID: $JOB_ID"
+    echo "  → Job ID: $JOB_ID (${PARTITION})"
     echo ""
     
     # Small delay to avoid overwhelming the scheduler
-    sleep 1
+    sleep 0.5
 }
 
 # Main execution
 echo "============================================"
-echo "PIDSMaker E3 Batch Submission"
+echo "PIDSMaker E3 Batch Submission - Milan GPU"
 echo "18 jobs: 3 datasets × 3 models × 2 configs"
 echo "============================================"
 echo ""
 
-# Submit all jobs
+# Submit all jobs to milan-gpu partition only
 for DATASET in "${DATASETS[@]}"; do
     echo "--- Dataset: $DATASET ---"
     for MODEL in "${MODELS[@]}"; do
         for CONFIG in "default" "tuned"; do
-            submit_job "$MODEL" "$CONFIG" "$DATASET"
+            # Submit to milan-gpu only
+            submit_job "$MODEL" "$CONFIG" "$DATASET" "milan-gpu"
         done
     done
     echo ""

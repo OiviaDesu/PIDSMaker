@@ -101,9 +101,25 @@ def compute_mcc(tp, fp, tn, fn):
 
 def get_threshold(val_tw_path, threshold_method: str, percentile_p: int = None):
     threshold_method = threshold_method.strip()
-    if threshold_method == "max_val_loss":
+    
+    # New node-based methods (ORTHRUS paper-aligned) - Reference: §4.4
+    if threshold_method == "max_val_node_score":
+        return calculate_threshold_node_based(val_tw_path, threshold_method)["max"]
+    elif threshold_method == "mean_val_node_score":
+        return calculate_threshold_node_based(val_tw_path, threshold_method)["mean"]
+    elif threshold_method == "percentile_val_node_score":
+        if percentile_p is None:
+            raise ValueError(
+                "percentile_val_node_score requires percentile_p (0-100) to be provided"
+            )
+        return calculate_threshold_node_based(val_tw_path, threshold_method, percentile_p)["percentile"]
+    
+    # Legacy edge-based methods (keep for backward compatibility)
+    elif threshold_method == "max_val_loss":
+        log("WARNING: Using deprecated edge-based threshold. Consider max_val_node_score instead.")
         return calculate_threshold(val_tw_path, threshold_method)["max"]
     elif threshold_method == "mean_val_loss":
+        log("WARNING: Using deprecated edge-based threshold. Consider mean_val_node_score instead.")
         return calculate_threshold(val_tw_path, threshold_method)["mean"]
     elif threshold_method == "threatrace":
         return 1.5
@@ -168,6 +184,94 @@ def calculate_threshold(val_tw_dir, threshold_method, percentile_p: int = None):
             f"Thresholds: MEAN={thr['mean']:.3f}, STD={std(loss_list):.3f}, MAX={thr['max']:.3f}, 90 Percentile={thr['percentile_90']:.3f}"
         )
 
+    return thr
+
+
+def calculate_node_scores_from_edges(val_tw_dir):
+    """
+    Compute per-node anomaly scores from edge-level losses.
+    Returns dict: {node_id: mean_incident_edge_loss}
+    
+    Per ORTHRUS paper Eq. 10: fA(u) = mean loss of edges incident to u
+    Reference: ORTHRUS §4.4, Eq. 10
+    """
+    from collections import defaultdict
+    
+    filelist = listdir_sorted(val_tw_dir)
+    
+    # Aggregate: node_id -> [list of incident edge losses]
+    node_to_losses = defaultdict(list)
+    
+    for file in sorted(filelist):
+        f = os.path.join(val_tw_dir, file)
+        df = pd.read_csv(f).to_dict()
+        
+        # Check if per-edge format (has src/dst) or per-node format
+        if 'src' in df and 'dst' in df and 'loss' in df:
+            # Per-edge format: aggregate by both src and dst
+            for i in range(len(df['loss'])):
+                loss = df['loss'][i]
+                node_to_losses[df['src'][i]].append(loss)
+                node_to_losses[df['dst'][i]].append(loss)
+                
+        elif 'node_id' in df and 'loss' in df:
+            # Already per-node format
+            for i in range(len(df['loss'])):
+                node_to_losses[df['node_id'][i]].append(df['loss'][i])
+        else:
+            # Try generic node/loss columns
+            if 'node' in df and 'loss' in df:
+                for i in range(len(df['loss'])):
+                    node_to_losses[df['node'][i]].append(df['loss'][i])
+            else:
+                raise ValueError(
+                    f"CSV format not recognized. Expected columns: (src, dst, loss) or (node_id, loss). "
+                    f"Found: {list(df.keys())}"
+                )
+    
+    # Compute mean loss per node
+    node_scores = {
+        node_id: float(np.mean(losses)) 
+        for node_id, losses in node_to_losses.items()
+    }
+    
+    return node_scores
+
+
+def calculate_threshold_node_based(val_tw_dir, threshold_method, percentile_p=None):
+    """
+    Threshold based on per-node anomaly scores (ORTHRUS paper method).
+    
+    Per paper §4.4: threshold = max(validation_node_scores) from benign day
+    Reference: ORTHRUS §4.4 - "threshold is automatically set to the highest 
+               anomaly score observed in the validation set"
+    """
+    node_scores = calculate_node_scores_from_edges(val_tw_dir)
+    score_list = list(node_scores.values())
+    
+    if len(score_list) == 0:
+        log("WARNING: No validation node scores computed!")
+        return {"max": 0.0, "mean": 0.0, "percentile_90": 0.0}
+    
+    thr = {
+        "max": float(np.max(score_list)),
+        "mean": float(np.mean(score_list)),
+        "percentile_90": float(np.percentile(score_list, 90)),
+    }
+    
+    if percentile_p is not None:
+        p = max(0, min(100, int(percentile_p)))
+        thr["percentile"] = float(np.percentile(score_list, p))
+        log(
+            f"[Node-based] Thresholds: MEAN={thr['mean']:.3f}, STD={float(np.std(score_list)):.3f}, "
+            f"MAX={thr['max']:.3f}, 90%ile={thr['percentile_90']:.3f}, {p}%ile={thr['percentile']:.3f}"
+        )
+    else:
+        log(
+            f"[Node-based] Thresholds: MEAN={thr['mean']:.3f}, STD={float(np.std(score_list)):.3f}, "
+            f"MAX={thr['max']:.3f}, 90%ile={thr['percentile_90']:.3f}"
+        )
+    
     return thr
 
 
@@ -1373,34 +1477,85 @@ def viz_graph(
 
 
 def compute_kmeans_labels(results, topk_K):
-    nodes_to_score = sorted(
-        [(node_id, d["score"]) for node_id, d in results.items()], key=lambda x: x[1]
-    )
-    nodes_to_score = np.array(nodes_to_score, dtype=object)
-    score_values = nodes_to_score[:, 1].astype(float)
-
-    last_N_scores = score_values[-topk_K:]
-    last_N_nodes = nodes_to_score[-topk_K:]
-
-    kmeans = KMeans(n_clusters=2, random_state=0, n_init=10)
-    kmeans.fit(last_N_scores.reshape(-1, 1))
-
-    centroids = kmeans.cluster_centers_.flatten()
-    highest_cluster_index = np.argmax(centroids)
-
-    # Extract scores from the highest value cluster
-    highest_value_cluster_indices = np.where(kmeans.labels_ == highest_cluster_index)[0]
-    highest_value_cluster = last_N_nodes[highest_value_cluster_indices]
-
-    # Extract scores and nodes from the highest cluster
-    cluster_scores = highest_value_cluster[:, 1].astype(float)
-    anomaly_nodes = highest_value_cluster[:, 0]
-
-    for idx in highest_value_cluster_indices:
-        global_idx = len(score_values) - topk_K + idx
-        node_id = nodes_to_score[global_idx, 0]
+    """
+    Apply K-means clustering to refine suspicious node detection.
+    
+    LEGACY MODE (topk_K > 0): Select top-K nodes, then cluster (old behavior)
+    PAPER MODE (topk_K = 0 or -1): Cluster ALL flagged nodes, keep higher-mean cluster
+    
+    Per ORTHRUS paper §4.4: After thresholding, apply K-means (k=2) to suspicious nodes
+    and keep only the cluster with higher mean anomaly score to reduce false positives.
+    
+    Reference: ORTHRUS §4.4 - "K-means clustering with two clusters... significantly 
+               reduces false positives and alleviates analyst workload"
+    """
+    # Get all flagged nodes (those with y_hat=1 from thresholding)
+    flagged_nodes = [(node_id, d["score"]) for node_id, d in results.items() if d.get("y_hat", 0) == 1]
+    
+    if len(flagged_nodes) == 0:
+        log("K-means: No flagged nodes to cluster")
+        return results
+    
+    # Paper-aligned mode: cluster ALL flagged nodes
+    if topk_K <= 0:
+        suspicious_nodes = flagged_nodes
+        log(f"K-means: Clustering all {len(suspicious_nodes)} flagged nodes (paper mode)")
+    else:
+        # Legacy mode: select top-K nodes first
+        nodes_to_score = sorted(
+            [(node_id, d["score"]) for node_id, d in results.items()], key=lambda x: x[1]
+        )
+        suspicious_nodes = nodes_to_score[-topk_K:]
+        log(f"K-means: Clustering top-{topk_K} nodes (legacy mode)")
+    
+    n_suspicious = len(suspicious_nodes)
+    
+    # Edge cases per paper guidance
+    if n_suspicious == 0:
+        return results
+    if n_suspicious == 1:
+        # Single node: keep it flagged
+        node_id = suspicious_nodes[0][0]
         results[node_id]["y_hat"] = 1
-
+        log(f"K-means: Only 1 suspicious node, keeping it")
+        return results
+    
+    # Extract scores for clustering
+    suspicious_array = np.array(suspicious_nodes, dtype=object)
+    scores = suspicious_array[:, 1].astype(float).reshape(-1, 1)
+    
+    # Run K-means (k=2)
+    kmeans = KMeans(n_clusters=2, random_state=0, n_init=10)
+    labels = kmeans.fit_predict(scores)
+    
+    # Find cluster with higher mean score (most suspicious)
+    cluster_means = []
+    for cluster_id in range(2):
+        cluster_mask = (labels == cluster_id)
+        cluster_scores = scores[cluster_mask]
+        cluster_size = cluster_mask.sum()
+        if cluster_size > 0:
+            cluster_mean = float(cluster_scores.mean())
+            cluster_means.append((cluster_id, cluster_mean, cluster_size))
+    
+    # Sort by mean score (descending), tie-break by size
+    cluster_means.sort(key=lambda x: (x[1], x[2]), reverse=True)
+    best_cluster_id = cluster_means[0][0]
+    
+    log(f"K-means clustering: {n_suspicious} suspicious nodes -> 2 clusters")
+    for cid, cmean, csize in cluster_means:
+        marker = "✓ SELECTED" if cid == best_cluster_id else "  ignored"
+        log(f"  Cluster {cid}: {csize} nodes, mean score {cmean:.3f} {marker}")
+    
+    # Clear all y_hat labels first
+    for node_id in results:
+        results[node_id]["y_hat"] = 0
+    
+    # Mark only nodes in best cluster as anomalous
+    for i, (node_id, score) in enumerate(suspicious_nodes):
+        if labels[i] == best_cluster_id:
+            results[node_id]["y_hat"] = 1
+    
     return results
 
 
