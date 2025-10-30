@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=orthus_cadets_e3_gpu
-#SBATCH --output=/fred/oz396/dunguyen/pids_logs/orthus_cadets_e3_gpu_%j.out
-#SBATCH --error=/fred/oz396/dunguyen/pids_logs/orthus_cadets_e3_gpu_%j.err
+#SBATCH --output=/fred/oz411/dunguyen/pids_logs/orthus_cadets_e3_gpu_%j.out
+#SBATCH --error=/fred/oz411/dunguyen/pids_logs/orthus_cadets_e3_gpu_%j.err
 #SBATCH --time=24:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -18,8 +18,8 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}
 
 # Ensure Postgres 17 server is running (use conda pg17 binaries without activating conda)
 PG_BIN="/home/dunguyen/.conda/envs/pg17/bin"
-PGDATA="/fred/oz396/dunguyen/pg/data"
-PGLOG="/fred/oz396/dunguyen/pg/logs/postgres.log"
+PGDATA="/fred/oz411/dunguyen/pg/data"
+PGLOG="/fred/oz411/dunguyen/pg/logs/postgres.log"
 if ! pgrep -f "postgres .* -D ${PGDATA}" >/dev/null 2>&1; then
   echo "[$(date)] Starting PostgreSQL 17 server..."
   "${PG_BIN}/pg_ctl" -D "${PGDATA}" -l "${PGLOG}" start
@@ -39,7 +39,7 @@ python -c "import sys, torch; print(sys.version); print('torch:', torch.__versio
 cd /home/dunguyen/git/PIDSMaker
 
 # Where to put artifacts for this run
-ART_DIR="/fred/oz396/dunguyen/pids_artifacts"
+ART_DIR="/fred/oz411/dunguyen/pids_artifacts"
 mkdir -p "${ART_DIR}"
 
 # Create a per-job virtualenv on node-local storage and install PyG + deps
@@ -78,6 +78,6 @@ python -m pidsmaker.main orthrus CADETS_E3 \
   --artifact_dir_in_container "${ART_DIR}" \
   --restart_from_scratch \
   --force_restart=build_graphs \
-  2>&1 | tee "/fred/oz396/dunguyen/pids_logs/orthus_cadets_e3_gpu_run_${SLURM_JOB_ID}.log"
+  2>&1 | tee "/fred/oz411/dunguyen/pids_logs/orthus_cadets_e3_gpu_run_${SLURM_JOB_ID}.log"
 
 echo "[$(date)] GPU job finished."

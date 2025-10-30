@@ -30,7 +30,7 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}
 
 # Use node-local PostgreSQL to avoid /fred inode usage
 PG_BIN="/home/dunguyen/.conda/envs/pg17/bin"
-SRC_PGDATA="/fred/oz396/dunguyen/pg/data"
+SRC_PGDATA="/fred/oz411/dunguyen/pg/data"
 # Pick a writable node-local base dir
 NODE_BASE="${SLURM_TMPDIR:-${TMPDIR:-/tmp}}"
 NODE_WORK="${NODE_BASE}/pids_run_${SLURM_JOB_ID}"

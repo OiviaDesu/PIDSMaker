@@ -226,5 +226,5 @@ The "zero TP" problem in ClearScope E3 is **not a bug but a fundamental limitati
 - Code: `pidsmaker/utils/labelling.py:46-96` (`get_GP_of_each_attack`)
 - Config: `pidsmaker/config/config.py` (dataset definitions)
 - Logs: 
-  - ClearScope E3: `/fred/oz396/dunguyen/slurm-logs/orthrus_tuned_clearscope_e3_ctn_6418143.out`
-  - CADETS E3: `/fred/oz396/dunguyen/slurm-logs/orthrus_tuned_cadets_e3_ctn_6397057.out`
+  - ClearScope E3: `/fred/oz411/dunguyen/slurm-logs/orthrus_tuned_clearscope_e3_ctn_6418143.out`
+  - CADETS E3: `/fred/oz411/dunguyen/slurm-logs/orthrus_tuned_cadets_e3_ctn_6397057.out`

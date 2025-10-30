@@ -30,8 +30,8 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 # Setup paths - using node-local PostgreSQL from conda environment
-PG_BIN="/fred/oz396/dunguyen/.conda/envs/pg17/bin"
-SRC_PGDATA="/fred/oz396/dunguyen/pg/data"
+PG_BIN="/fred/oz411/dunguyen/.conda/envs/pg17/bin"
+SRC_PGDATA="/fred/oz411/dunguyen/pg/data"
 NODE_BASE="${SLURM_TMPDIR:-${TMPDIR:-/tmp}}"
 NODE_WORK="${NODE_BASE}/pids_run_${SLURM_JOB_ID}"
 NODE_PGDATA="${NODE_WORK}/pgdata"
@@ -68,10 +68,10 @@ done
 module -q load apptainer
 
 # Use prebuilt container image on /fred to avoid network during job
-IMG="/fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif"
+IMG="/fred/oz411/dunguyen/containers/pidsmaker_cuda117.sif"
 echo "[$(date)] Using image ${IMG}"
-export APPTAINER_CACHEDIR="/fred/oz396/dunguyen/.apptainer/cache"
-export APPTAINER_TMPDIR="/fred/oz396/dunguyen/.apptainer/tmp"
+export APPTAINER_CACHEDIR="/fred/oz411/dunguyen/.apptainer/cache"
+export APPTAINER_TMPDIR="/fred/oz411/dunguyen/.apptainer/tmp"
 mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
 echo "[$(date)] Using image ${IMG}"
 which apptainer || true

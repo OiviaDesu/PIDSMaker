@@ -45,7 +45,7 @@ This document consolidates every recent Orthrus run on OzSTAR for the CADETS_E3 
 ### Setup
 - Node `gina17` (milan-gpu partition, NVIDIA A100)
 - Resources: 1 GPU, 4 CPUs, 96 GB RAM, 50 GB tmp, 2 h limit
-- Container: `/fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif`
+- Container: `/fred/oz411/dunguyen/containers/pidsmaker_cuda117.sif`
 - Configuration: `orthrus.yml` (128-dim embeddings, reduced batch sizes)
 
 ### Performance breakdown
@@ -201,7 +201,7 @@ Each archive contains the `artifacts/`, `wandb/`, `gpu_stats.log`, and standard 
 ### Setup
 - Node `gina5` (milan-gpu partition, NVIDIA A100)
 - Resources: 1 GPU, 4 CPUs, 64 GB RAM, 50 GB tmp, 2 h limit
-- Container: `/fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif`
+- Container: `/fred/oz411/dunguyen/containers/pidsmaker_cuda117.sif`
 - Configuration: `magic.yml` (MAGIC GAT encoder, masked graph representation learning)
 
 ### Configuration details
@@ -273,7 +273,7 @@ Magic validates that **the detection failure is not due to model architecture or
 ### Setup
 - Node `gina1` (milan-gpu partition, NVIDIA A100)
 - Resources: 1 GPU, 4 CPUs, 64 GB RAM, 50 GB tmp, 2 h limit
-- Container: `/fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif`
+- Container: `/fred/oz411/dunguyen/containers/pidsmaker_cuda117.sif`
 - Configuration: `kairos.yml` (hierarchical hashing, TGN with memory)
 
 ### Configuration details
@@ -318,7 +318,7 @@ Memory usage: GPU 2.36 GB (highest of all models), CPU 1.01 GB.
 ### Setup
 - Node `gina5` (milan-gpu partition, NVIDIA A100)
 - Resources: 1 GPU, 4 CPUs, 64 GB RAM, 50 GB tmp, 2 h limit
-- Container: `/fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif`
+- Container: `/fred/oz411/dunguyen/containers/pidsmaker_cuda117.sif`
 - Configuration: `orthrus.yml` (default with fixed threshold_method)
 
 ### Configuration fix
@@ -652,7 +652,7 @@ Notes:
 ### Next Steps
 
 1. Monitor queue status: `squeue -j 6396666,6396667,6396668,6396669,6396670,6396671`
-2. Once running, tail logs: `tail -f /fred/oz396/dunguyen/slurm-logs/{model}_tuned_{dataset}_e3_ctn_{JOBID}.out`
+2. Once running, tail logs: `tail -f /fred/oz411/dunguyen/slurm-logs/{model}_tuned_{dataset}_e3_ctn_{JOBID}.out`
 3. Extract metrics and update this document once completed
 4. Compare results against baseline and paper targets
 
@@ -1066,7 +1066,7 @@ Our 100% recall (Kairos THEIA) means **no attacks are missed**. Combined with al
 
 ### Artifact Locations
 
-All tuned job outputs archived at `/fred/oz396/dunguyen/slurm-logs/`:
+All tuned job outputs archived at `/fred/oz411/dunguyen/slurm-logs/`:
 
 | Job ID | Model | Dataset | Tarball |
 |--------|-------|---------|---------|

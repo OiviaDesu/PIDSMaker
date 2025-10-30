@@ -120,7 +120,7 @@ def get_default_cfg(args):
     # Experiments
     create_cfg_recursive(cfg, EXPERIMENTS_CONFIG)
 
-    return cfg
+    return parser
 
 
 def set_dataset_cfg(cfg, dataset):

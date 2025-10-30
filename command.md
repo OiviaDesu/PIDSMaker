@@ -9,7 +9,7 @@ This file records every significant command used to set up and run PIDSMaker (Or
   - `cd PIDSMaker`
 
 - Create directories on /fred for caches, logs, artifacts, and Postgres data
-  - `export FRED_BASE=/fred/oz396/dunguyen`
+  - `export FRED_BASE=/fred/oz411/dunguyen`
   - `mkdir -p $FRED_BASE/{containers,pids_logs,pids_artifacts,.apptainer/{cache,tmp},pg/{data,logs}}`
 
 ## PostgreSQL 17 setup and dataset restore
@@ -88,18 +88,18 @@ This file records every significant command used to set up and run PIDSMaker (Or
 - **Issue:** pg17 conda environment was incomplete/removed
 - **Solution:**
   ```bash
-  rm -rf /fred/oz396/dunguyen/.conda/envs/pg17
+  rm -rf /fred/oz411/dunguyen/.conda/envs/pg17
   mamba create -n pg17 postgresql=17 -c conda-forge -y
   ```
 - **Verification:**
   ```bash
-  /fred/oz396/dunguyen/.conda/envs/pg17/bin/pg_ctl --version
+  /fred/oz411/dunguyen/.conda/envs/pg17/bin/pg_ctl --version
   # pg_ctl (PostgreSQL) 17.6
   ```
 - **Database check:**
   ```bash
-  /fred/oz396/dunguyen/.conda/envs/pg17/bin/pg_ctl -D /fred/oz396/dunguyen/pg/data -l /tmp/pg_temp.log -o "-p 55432" start
-  /fred/oz396/dunguyen/.conda/envs/pg17/bin/psql -h localhost -p 55432 -U postgres -d cadets_e3 -c "SELECT COUNT(*) FROM event_table;"
+  /fred/oz411/dunguyen/.conda/envs/pg17/bin/pg_ctl -D /fred/oz411/dunguyen/pg/data -l /tmp/pg_temp.log -o "-p 55432" start
+  /fred/oz411/dunguyen/.conda/envs/pg17/bin/psql -h localhost -p 55432 -U postgres -d cadets_e3 -c "SELECT COUNT(*) FROM event_table;"
   # Result: 36,484,667 events (database intact!)
   ```
 
@@ -170,7 +170,7 @@ This file records every significant command used to set up and run PIDSMaker (Or
 - Observed GPU run 6356979 failed inside container: ModuleNotFoundError: psycopg2
 - Patched `containers/pidsmaker_cuda117.def` to include `psycopg2-binary==2.9.9`
 - Rebuilt container on login node:
-  - `module load apptainer && apptainer build /fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif containers/pidsmaker_cuda117.def`
+  - `module load apptainer && apptainer build /fred/oz411/dunguyen/containers/pidsmaker_cuda117.sif containers/pidsmaker_cuda117.def`
 - Resubmitted GPU job with updated image → JobID 6357087 (PENDING, PartitionDown)
 
 ## Code and script fixes
@@ -373,9 +373,9 @@ sacct -j 6351284,6351285 --format=JobID,JobName%30,Partition,State,ExitCode,Star
 scontrol show job 6351284
 sed -n "1,200p" ~/slurm-logs/orthus_cadets_e3_ctn_6351284.out
 sed -n "1,200p" ~/slurm-logs/orthus_cadets_e3_ctn_6351284.err
-tail -n 200 /fred/oz396/dunguyen/pg/logs/postgres.log
-rm -f /fred/oz396/dunguyen/cadets_e5-001.dump
-du -sh /fred/oz396/dunguyen/* | sort -h | tail -n 20
+tail -n 200 /fred/oz411/dunguyen/pg/logs/postgres.log
+rm -f /fred/oz411/dunguyen/cadets_e5-001.dump
+du -sh /fred/oz411/dunguyen/* | sort -h | tail -n 20
 scancel 6351703 6351704
 sbatch -p skylake-gpu scripts/run_orthus_cadets_e3_apptainer_skylake.slurm
 squeue -j 6351715 -o "%i %T %P %R %M %l %D %C %m %b %N"
@@ -412,5 +412,5 @@ bash scripts/submit_all_e3_jobs.sh
 ```bash
 squeue -j 6531376-6531396
 sacct -j 6531376-6531396 --format=JobID,JobName%30,State,Elapsed,MaxRSS
-tail -f /fred/oz396/dunguyen/slurm-logs/orthrus_default_cadets_e3_ctn_6531376.out
+tail -f /fred/oz411/dunguyen/slurm-logs/orthrus_default_cadets_e3_ctn_6531376.out
 ```

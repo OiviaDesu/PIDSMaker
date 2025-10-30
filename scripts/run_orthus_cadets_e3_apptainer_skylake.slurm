@@ -29,7 +29,7 @@ fi
 
 # Use node-local PostgreSQL to avoid /fred inode usage
 PG_BIN="/home/dunguyen/.conda/envs/pg17/bin"
-SRC_PGDATA="/fred/oz396/dunguyen/pg/data"
+SRC_PGDATA="/fred/oz411/dunguyen/pg/data"
 # Pick a writable node-local base dir
 NODE_BASE="${SLURM_TMPDIR:-${TMPDIR:-/tmp}}"
 NODE_WORK="${NODE_BASE}/pids_run_${SLURM_JOB_ID}"
@@ -53,10 +53,10 @@ done
 module -q load apptainer
 
 # Use prebuilt container image on /fred to avoid network during job
-IMG="/fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif"
+IMG="/fred/oz411/dunguyen/containers/pidsmaker_cuda117.sif"
 echo "[$(date)] Using image ${IMG}"
-export APPTAINER_CACHEDIR="/fred/oz396/dunguyen/.apptainer/cache"
-export APPTAINER_TMPDIR="/fred/oz396/dunguyen/.apptainer/tmp"
+export APPTAINER_CACHEDIR="/fred/oz411/dunguyen/.apptainer/cache"
+export APPTAINER_TMPDIR="/fred/oz411/dunguyen/.apptainer/tmp"
 mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
 which apptainer || true
 apptainer --version || true

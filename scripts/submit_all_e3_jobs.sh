@@ -9,9 +9,9 @@ set -euo pipefail
 
 # Configuration
 SCRIPT_DIR="/home/dunguyen/git/PIDSMaker/scripts"
-LOG_DIR="/fred/oz396/dunguyen/slurm-logs"
-CONTAINER="/fred/oz396/dunguyen/containers/pidsmaker_cuda117.sif"
-PG_BIN="/fred/oz396/dunguyen/.conda/envs/pg17/bin"
+LOG_DIR="/fred/oz411/dunguyen/slurm-logs"
+CONTAINER="/fred/oz411/dunguyen/containers/pidsmaker_cuda117.sif"
+PG_BIN="/fred/oz411/dunguyen/.conda/envs/pg17/bin"
 
 # Datasets to run
 DATASETS=("CADETS_E3" "THEIA_E3" "CLEARSCOPE_E3")
@@ -109,7 +109,7 @@ elif [ -d "/scratch" ] && [ -w "/scratch" ]; then
 elif [ -n "${TMPDIR:-}" ] && [ "${TMPDIR}" != "/tmp" ]; then
     TMPDIR_BASE="${TMPDIR}"
 else
-    TMPDIR_BASE="/fred/oz396/dunguyen/tmp"
+    TMPDIR_BASE="/fred/oz411/dunguyen/tmp"
 fi
 TMPDIR="${TMPDIR_BASE}/pidsmaker_${JOB_ID}"
 PGDATA="${TMPDIR}/pgdata"
@@ -121,16 +121,14 @@ RUN_LOG="${TMPDIR}/run.log"
 mkdir -p "${TMPDIR}" "${PGDATA}" "${ARTIFACT_DIR}"
 
 # Function to stop PostgreSQL on exit
-cleanup() {
+    cleanup() {
     echo "Cleaning up..."
     if [ -f "${PGDATA}/postmaster.pid" ]; then
         PG_BIN_PLACEHOLDER/pg_ctl -D "${PGDATA}" stop -m fast || true
     fi
-    # Persist only lightweight logs to shared storage to avoid quota issues
-    if [ -d "${TMPDIR}" ]; then
-        ( cd "${TMPDIR}" && tar -czf "LOG_DIR_PLACEHOLDER/JOB_NAME_PLACEHOLDER_ctn_${JOB_ID}_logs.tar.gz" --ignore-failed-read --warning=no-file-changed -- *.log 2>/dev/null ) || true
-    fi
-    rm -rf "${TMPDIR}"
+    # Per user request: Do NOT persist large tarballs to shared storage and do NOT remove TMPDIR here.
+    # This avoids filling /fred or any shared filesystem when node-local scratch is limited.
+    echo "NOTE: Skipping tarball creation and TMPDIR deletion (logs remain in ${TMPDIR})."
 }
 trap cleanup EXIT
 
@@ -167,7 +165,7 @@ done
 echo "Creating database and restoring from dump..."
 PG_BIN_PLACEHOLDER/createdb -h 127.0.0.1 -p ${PG_PORT} -U postgres DATASET_LC_PLACEHOLDER || echo "Database DATASET_LC_PLACEHOLDER may already exist"
 
-echo "Restoring database from /fred/oz396/dunguyen/data/DATASET_LC_PLACEHOLDER.dump..."
+echo "Restoring database from /fred/oz411/dunguyen/data/DATASET_LC_PLACEHOLDER.dump..."
 # Check available free space in TMPDIR before restoring large DB dump.
 # If free space is below MIN_TMP_BYTES, fail early with a clear message.
 MIN_TMP_BYTES=$((10 * 1024 * 1024 * 1024))  # 10 GiB
@@ -180,7 +178,7 @@ if [ "${avail_bytes}" -lt "${MIN_TMP_BYTES}" ]; then
 fi
 
 PG_BIN_PLACEHOLDER/pg_restore -h 127.0.0.1 -p ${PG_PORT} -U postgres -d DATASET_LC_PLACEHOLDER \
-    /fred/oz396/dunguyen/data/DATASET_LC_PLACEHOLDER.dump || echo "Restore may have completed with warnings"
+    /fred/oz411/dunguyen/data/DATASET_LC_PLACEHOLDER.dump || echo "Restore may have completed with warnings"
 
 # Run PIDSMaker inside Apptainer
 echo "Running PIDSMaker..."

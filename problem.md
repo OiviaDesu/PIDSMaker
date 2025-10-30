@@ -57,6 +57,6 @@ This document captures the root causes behind the latest batch (Batch 10, jobs 6
 
 ## Log pointers
 
-- Slurm logs: `/fred/oz396/dunguyen/slurm-logs/*_ctn_<JOB_ID>.*`
+- Slurm logs: `/fred/oz411/dunguyen/slurm-logs/*_ctn_<JOB_ID>.*`
   - Example fails: 6532643 (cadets), 6532649 (theia).
   - Example “COMPLETED” but still argparse error due to masking: 6532655–6532660 (clearscope).
