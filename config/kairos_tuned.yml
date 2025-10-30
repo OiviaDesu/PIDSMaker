@@ -83,15 +83,16 @@ detection:
   evaluation:
     viz_malicious_nodes: False
     ground_truth_version: orthrus
-    best_model_selection: best_adp
-    used_method: node_evaluation
-    node_evaluation:
-      threshold_method: percentile
-      percentile_p: 78
-      use_dst_node_loss: True
-      use_kmeans: False
+    best_model_selection: best_discrimination  # Queue-level uses discrimination metric
+    used_method: queue_evaluation  # Paper-faithful: use native queue/time-window detection
     queue_evaluation:
       queue_threshold: 20
       used_method: kairos_idf_queue
       kairos_idf_queue:
         include_test_set_in_IDF: True
+    # Legacy node_evaluation kept for cross-model comparison only (not primary)
+    node_evaluation:
+      threshold_method: percentile
+      percentile_p: 78
+      use_dst_node_loss: True
+      use_kmeans: False
