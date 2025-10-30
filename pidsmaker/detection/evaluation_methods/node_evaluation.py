@@ -288,8 +288,11 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
     val_node_ids = []
     for f in val_files:
         df = pd.read_csv(f)
+        # Handle both 'node_id' and 'node' column names
         if 'node_id' in df.columns:
             val_node_ids.extend(df['node_id'].values.tolist())
+        elif 'node' in df.columns:
+            val_node_ids.extend(df['node'].values.tolist())
     
     # Build validation labels
     val_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in val_node_ids])
@@ -336,8 +339,13 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
         emb_cols = [col for col in df.columns if col.startswith(embedding_col_prefix)]
         embeddings = df[emb_cols].values
         
-        # Extract node IDs and build labels
-        node_ids = df['node_id'].values.tolist() if 'node_id' in df.columns else list(range(len(df)))
+        # Extract node IDs and build labels (handle both 'node_id' and 'node' columns)
+        if 'node_id' in df.columns:
+            node_ids = df['node_id'].values.tolist()
+        elif 'node' in df.columns:
+            node_ids = df['node'].values.tolist()
+        else:
+            node_ids = list(range(len(df)))
         labels = np.array([1 if nid in ground_truth_nids else 0 for nid in node_ids])
         
         test_days_data.append({
@@ -387,7 +395,7 @@ def main(val_tw_path, test_tw_path, model_epoch_dir, cfg, tw_to_malicious_nodes,
                 # Get ground truth malicious nodes
                 ground_truth_nids, _ = get_ground_truth_nids(cfg)
                 
-                # Load node_ids from CSV to build label arrays
+                # Load node_ids from CSV to build label arrays (handle both 'node_id' and 'node' columns)
                 log(f"Loading validation node IDs from {val_tw_path}")
                 val_files = sorted([os.path.join(val_tw_path, f) for f in os.listdir(val_tw_path) if f.endswith('.csv')])
                 val_node_ids = []
@@ -395,6 +403,8 @@ def main(val_tw_path, test_tw_path, model_epoch_dir, cfg, tw_to_malicious_nodes,
                     df = pd.read_csv(f)
                     if 'node_id' in df.columns:
                         val_node_ids.extend(df['node_id'].values.tolist())
+                    elif 'node' in df.columns:
+                        val_node_ids.extend(df['node'].values.tolist())
                 
                 log(f"Loading test node IDs from {test_tw_path}")
                 test_files = sorted([os.path.join(test_tw_path, f) for f in os.listdir(test_tw_path) if f.endswith('.csv')])
@@ -403,6 +413,8 @@ def main(val_tw_path, test_tw_path, model_epoch_dir, cfg, tw_to_malicious_nodes,
                     df = pd.read_csv(f)
                     if 'node_id' in df.columns:
                         test_node_ids.extend(df['node_id'].values.tolist())
+                    elif 'node' in df.columns:
+                        test_node_ids.extend(df['node'].values.tolist())
                 
                 # Build label arrays: 1 if node_id is in ground_truth_nids, 0 otherwise
                 val_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in val_node_ids])
