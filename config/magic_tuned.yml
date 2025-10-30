@@ -72,7 +72,7 @@ detection:
   evaluation:
     viz_malicious_nodes: False
     ground_truth_version: orthrus
-    best_model_selection: best_adp
+    best_model_selection: best_discrimination  # Magic uses discrimination (F1/MCC), not adp_score
     used_method: node_evaluation
     node_evaluation:
       threshold_method: magic
