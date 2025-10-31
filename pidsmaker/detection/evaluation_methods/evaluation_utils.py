@@ -142,7 +142,15 @@ def get_threshold(val_tw_path, threshold_method: str, percentile_p: int = None):
 
 def reduce_losses_to_score(losses: list[float], threshold_method: str):
     threshold_method = threshold_method.strip()
-    if threshold_method == "mean_val_loss":
+    # Node-based threshold methods (ORTHRUS paper-aligned, Reference: §4.4)
+    if threshold_method == "max_val_node_score":
+        return np.max(losses)
+    elif threshold_method == "mean_val_node_score":
+        return np.mean(losses)
+    elif threshold_method == "percentile_val_node_score":
+        return np.percentile(losses, 90)  # Default 90th percentile
+    # Legacy edge-based methods
+    elif threshold_method == "mean_val_loss":
         return np.mean(losses)
     elif (
         threshold_method == "max_val_loss"
