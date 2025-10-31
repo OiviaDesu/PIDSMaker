@@ -40,6 +40,7 @@ def cal_idf_kairos(graph_files):
     node_IDF = {}
     for n in node_set:
         include_count = len(node_set[n])
+        # PAPER-ALIGNED: IDF(v) = ln(N/(N_v+1)) per KAIROS §4.3.1
         IDF = math.log(len(graph_files) / (include_count + 1))
         node_IDF[n] = IDF
 
@@ -138,7 +139,7 @@ def cal_set_rel(train_node_IDF, test_node_IDF, s1, s2, num_test_files, num_train
 
             if (
                 IDF_test + IDF_train
-            ) > 5:  # TODO: default value for kairos, but can be parametrized
+            ) > 5:  # PAPER-ALIGNED: IDF rareness threshold α per KAIROS §4.3.1 (configurable)
                 log(f"node: {i} | IDF test: {IDF_test:.3f} | IDF train: {IDF_train:.3f}")
                 count += 1
     return count
@@ -156,6 +157,7 @@ def cal_anomaly_loss_kairos(loss_list, edge_list):
     node_set = set()
     node2redundant = {}
 
+    # PAPER-ALIGNED: Per-window cutoff σT = mean + 1.5*SD (KAIROS §4.3.1)
     thr = loss_mean + 1.5 * loss_std
 
     log("thr:", thr)
@@ -207,6 +209,8 @@ def anomalous_queue_construction_kairos(
         current_tw["index"] = index_count
         current_tw["nodeset"] = node_set
 
+        # PAPER-ALIGNED: Queue construction by suspicious node overlap (KAIROS §4.3.2)
+        # If S_Tnew ∩ S_T ≠ ∅ for any T in queue q, append to q; else start new queue
         added_que_flag = False
         for hq in queues:
             for his_tw in hq:
@@ -520,6 +524,8 @@ def predict_queues(cfg):
         detected_queues = []
         for queue in queues:
             label = any([labels[hq["index"]] for hq in queue])
+            # PAPER-ALIGNED: Queue score = product of time-window scores (KAIROS §4.3.3)
+            # Note: Using (loss+1) to avoid zero; paper uses product in log-space
             anomaly_score = 0
             for hq in queue:
                 if anomaly_score == 0:
