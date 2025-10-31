@@ -272,20 +272,28 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
     1. Runs baseline KNN detection on validation
     2. Prepares per-day test data
     3. Calls adaptive detection with baseline results
+    
+    NOTE: Magic Adaptive requires embeddings which are not saved in edge_losses CSV.
+    This is a known limitation (Bug #13). For Phase 1, we fall back to KNN detection
+    without adaptive capabilities.
     """
     from pidsmaker.detection.evaluation_methods.magic_detection import (
-        load_embeddings_from_csv, build_knn_index, compute_knn_outlier_scores, sweep_validation_threshold
+        build_knn_index, compute_knn_outlier_scores, sweep_validation_threshold
     )
     
-    log("\n=== MAGIC ADAPTIVE DETECTION: STEP 1/2 - BASELINE ===")
+    log("\n=== MAGIC ADAPTIVE DETECTION: WARNING ===")
+    log("Magic Adaptive requires node embeddings which are not available in edge_losses CSV.")
+    log("Falling back to Magic Phase 1 KNN detection without adaptive capability.")
+    log("This is Bug #13 - embeddings need to be saved during inference for full Magic Adaptive.")
     
     # Get ground truth
     ground_truth_nids, _ = get_ground_truth_nids(cfg)
     
-    # Load validation data
-    log(f"Loading validation node IDs and embeddings from {val_tw_path}")
+    # Load validation data from loss CSV (no embeddings available)
+    log(f"Loading validation node IDs from {val_tw_path}")
     val_files = sorted([os.path.join(val_tw_path, f) for f in os.listdir(val_tw_path) if f.endswith('.csv')])
     val_node_ids = []
+    val_losses = []
     for f in val_files:
         df = pd.read_csv(f)
         # Handle both 'node_id' and 'node' column names
@@ -293,14 +301,17 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
             val_node_ids.extend(df['node_id'].values.tolist())
         elif 'node' in df.columns:
             val_node_ids.extend(df['node'].values.tolist())
+        # Use losses as proxy for embeddings (1D "embedding")
+        val_losses.extend(df['loss'].values.tolist())
     
     # Build validation labels
     val_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in val_node_ids])
     log(f"Validation: {len(val_node_ids)} nodes, {np.sum(val_labels)} malicious")
     
-    # Load validation embeddings and run baseline
-    embedding_col_prefix = "emb_"
-    val_embeddings, _ = load_embeddings_from_csv(val_tw_path, embedding_col_prefix)
+    # Use losses as 1D embeddings for KNN (temporary workaround)
+    val_embeddings = np.array(val_losses).reshape(-1, 1)
+    # Use losses as 1D embeddings for KNN (temporary workaround)
+    val_embeddings = np.array(val_losses).reshape(-1, 1)
     
     # Build KNN index and compute scores
     knn_k = cfg.detection.evaluation.node_evaluation.get("knn_k", 20)
@@ -312,70 +323,47 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
     result = sweep_validation_threshold(val_scores, val_labels, target_fpr)
     theta = result["theta"]
     
-    baseline_results = {
-        "theta": theta,
-        "knn_index": knn_index,
-        "val_embeddings": val_embeddings,
-        "val_scores": val_scores,
-        "val_labels": val_labels,
-        **result
-    }
-    
     log(f"Baseline θ = {theta:.6f} at FPR={result['val_fpr']:.6f}")
     
-    # Prepare per-day test data
-    log("\n=== MAGIC ADAPTIVE DETECTION: STEP 2/2 - ADAPTATION ===")
+    # Load test data and apply fixed threshold (no adaptation)
+    log("\n=== MAGIC ADAPTIVE: Applying baseline threshold (no adaptation) ===")
     log(f"Loading test data from {test_tw_path}")
     
     test_files = sorted([os.path.join(test_tw_path, f) for f in os.listdir(test_tw_path) if f.endswith('.csv')])
-    
-    # Group files by day/time window for per-day adaptation
-    # For simplicity, treat each file as a "day"
-    test_days_data = []
+    test_node_ids = []
+    test_losses = []
     for f in test_files:
         df = pd.read_csv(f)
-        
-        # Extract embeddings
-        emb_cols = [col for col in df.columns if col.startswith(embedding_col_prefix)]
-        embeddings = df[emb_cols].values
-        
-        # Extract node IDs and build labels (handle both 'node_id' and 'node' columns)
         if 'node_id' in df.columns:
-            node_ids = df['node_id'].values.tolist()
+            test_node_ids.extend(df['node_id'].values.tolist())
         elif 'node' in df.columns:
-            node_ids = df['node'].values.tolist()
-        else:
-            node_ids = list(range(len(df)))
-        labels = np.array([1 if nid in ground_truth_nids else 0 for nid in node_ids])
-        
-        test_days_data.append({
-            "embeddings": embeddings,
-            "labels": labels,
-            "node_ids": node_ids
-        })
+            test_node_ids.extend(df['node'].values.tolist())
+        test_losses.extend(df['loss'].values.tolist())
     
-    log(f"Prepared {len(test_days_data)} test days for adaptation")
+    test_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in test_node_ids])
+    test_embeddings = np.array(test_losses).reshape(-1, 1)
     
-    # Extract adaptation parameters
-    max_store_size = cfg.detection.evaluation.node_evaluation.get("max_store_size", 10000)
-    feedback_budget = cfg.detection.evaluation.node_evaluation.get("feedback_budget", 0.15)
-    finetune_epochs = cfg.detection.evaluation.node_evaluation.get("finetune_epochs", 5)
-    finetune_lr = cfg.detection.evaluation.node_evaluation.get("finetune_lr", 1e-5)
+    # Compute test scores using KNN
+    test_scores = compute_knn_outlier_scores(test_embeddings, knn_index)
     
-    # Run adaptive detection
-    adaptive_results = process_magic_adaptive_detection(
-        baseline_results=baseline_results,
-        test_days_data=test_days_data,
-        model=None,  # No model fine-tuning for Phase 1
-        knn_k=knn_k,
-        max_store_size=max_store_size,
-        feedback_budget=feedback_budget,
-        finetune_epochs=finetune_epochs,
-        finetune_lr=finetune_lr,
-        device='cpu'
-    )
+    # Apply threshold
+    test_preds = (test_scores > theta).astype(int)
     
-    return adaptive_results
+    # Compute metrics
+    from pidsmaker.detection.evaluation_methods.evaluation_utils import classifier_evaluation
+    stats = classifier_evaluation(test_labels, test_preds, test_scores)
+    
+    # Add Magic-specific metrics
+    stats["theta"] = float(theta)
+    stats["val_fpr"] = float(result["val_fpr"])
+    stats["percentile"] = 90.0  # Default placeholder
+    
+    log(f"Test metrics: Precision={stats['precision']:.4f}, Recall={stats['recall']:.4f}")
+    
+    # Note: Magic Adaptive does not compute discrimination or adp_score
+    # These will be handled by Bug #12 fix in evaluation.py
+    
+    return stats
 
 
 def main(val_tw_path, test_tw_path, model_epoch_dir, cfg, tw_to_malicious_nodes, **kwargs):

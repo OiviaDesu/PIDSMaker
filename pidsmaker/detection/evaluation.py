@@ -96,15 +96,28 @@ def best_metric_pick_best_epoch(stats, best_metrics, cfg):
         # Check if adp_score exists (some methods like Magic baseline don't compute it)
         if "adp_score" not in stats:
             # Fallback to discrimination for methods without adaptive scoring
-            condition = stats["discrimination"] > best_metrics["discrimination"]
+            if "discrimination" in stats:
+                condition = stats["discrimination"] > best_metrics["discrimination"]
+            else:
+                # Neither adp_score nor discrimination available (e.g., Magic Phase 1)
+                # Use simple epoch-based selection (later epoch is better)
+                condition = True
         else:
-            condition = (stats["adp_score"] > best_metrics["adp_score"]) or (
-                stats["adp_score"] == best_metrics["adp_score"]
-                and stats["discrimination"] > best_metrics["discrimination"]
-            )
+            if "discrimination" in stats:
+                condition = (stats["adp_score"] > best_metrics["adp_score"]) or (
+                    stats["adp_score"] == best_metrics["adp_score"]
+                    and stats["discrimination"] > best_metrics["discrimination"]
+                )
+            else:
+                # Only adp_score available
+                condition = stats["adp_score"] > best_metrics["adp_score"]
 
     elif best_model_selection == "best_discrimination":
-        condition = stats["discrimination"] > best_metrics["discrimination"]
+        if "discrimination" in stats:
+            condition = stats["discrimination"] > best_metrics["discrimination"]
+        else:
+            # Discrimination not available, use simple epoch-based selection
+            condition = True
 
     else:
         raise ValueError(f"Invalid best model selection {best_model_selection}")
@@ -113,7 +126,8 @@ def best_metric_pick_best_epoch(stats, best_metrics, cfg):
         # Only update adp_score if it exists in stats
         if "adp_score" in stats:
             best_metrics["adp_score"] = stats["adp_score"]
-        best_metrics["discrimination"] = stats["discrimination"]
+        if "discrimination" in stats:
+            best_metrics["discrimination"] = stats["discrimination"]
         best_metrics["stats"] = stats
     return best_metrics
 

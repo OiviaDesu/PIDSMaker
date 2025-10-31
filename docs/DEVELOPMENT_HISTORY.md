@@ -548,6 +548,145 @@ Job 6357922 successfully ran the full Orthrus pipeline but revealed two critical
 3. Documentation: Updated expected results with accurate paper citations
 
 **Jobs Submitted**:
+- Job 6562381: `orthrus_tuned_cadets_e3` (validates Bug #5 fix with max_val_node_score)
+- Job 6562382: `magic_phase1_cadets_e3` (validates Bug #9: k=10)
+- Job 6562383: `magic_adaptive_cadets_e3` (validates Bug #9: k=10)
+- Job 6562384: `kairos_phase1_cadets_e3` (validates Bug #10: α configurable)
+
+**Status**: Jobs 6562382-6562384 cancelled (partition down), Job 6562381 failed (Bug #11)
+
+---
+
+### Bug #11: Incomplete Bug #5 Fix (October 31, 2025)
+
+**Date**: October 31, 2025, 15:10-16:30 AEDT  
+**Severity**: High  
+**Status**: ✅ Fixed
+
+#### Discovery
+
+**Job ID**: 6562381 (orthrus_tuned_cadets_e3)  
+**Symptom**: Job failed after 27 minutes with error:
+```
+ValueError: Invalid threshold method max_val_node_score
+```
+
+**Context**: Job 6562381 was submitted to validate Bug #5 fix. Training completed successfully (11 epochs, AUC=0.81), but evaluation failed during threshold calculation.
+
+#### Root Cause Analysis
+
+Bug #5 fix was **incomplete** - only updated one of two required locations:
+
+1. ✅ **Updated**: `THRESHOLD_METHODS` validation list in `config.py` (commit 2f31601)
+   - Added: `max_val_node_score`, `mean_val_node_score`, `percentile_val_node_score`
+   - Effect: Config validation now accepts these methods
+
+2. ❌ **Missed**: `reduce_losses_to_score()` function in `evaluation_utils.py`
+   - This function actually calculates thresholds from validation losses
+   - Only handled legacy edge-based methods (`max_val_loss`, `mean_val_loss`)
+   - Didn't know how to process node-based methods
+
+**Why This Happened**:
+- Bug #5 fix focused on config validation (allowing the methods)
+- Forgot to check runtime functions that consume these methods
+- Multi-file feature changes require comprehensive updates
+
+#### Impact Assessment
+
+**Before Fix**:
+- Config validation: ✅ Accepts `max_val_node_score`
+- Runtime execution: ❌ Crashes with ValueError
+- All jobs using node-based thresholds: 100% failure rate
+
+**After Fix**:
+- Config validation: ✅ Accepts node-based methods
+- Runtime execution: ✅ Processes node-based methods correctly
+- Expected: Jobs complete successfully with proper node-level thresholding
+
+#### Fix Applied
+
+**Commit**: c428fa9  
+**File Modified**: `pidsmaker/detection/evaluation_methods/evaluation_utils.py`
+
+**Changes**:
+```python
+def reduce_losses_to_score(losses: list[float], threshold_method: str):
+    threshold_method = threshold_method.strip()
+    # Node-based threshold methods (ORTHRUS paper-aligned, Reference: §4.4)
+    if threshold_method == "max_val_node_score":
+        return np.max(losses)  # ← ADDED
+    elif threshold_method == "mean_val_node_score":
+        return np.mean(losses)  # ← ADDED
+    elif threshold_method == "percentile_val_node_score":
+        return np.percentile(losses, 90)  # ← ADDED (default 90th percentile)
+    # Legacy edge-based methods
+    elif threshold_method == "mean_val_loss":
+        return np.mean(losses)
+    # ... rest unchanged
+```
+
+**Additional Actions**:
+1. Cancelled jobs 6562382-6562384 (blocked by partition down)
+2. Created optimized job scripts (20GB RAM, 1h time vs 48GB, 2h)
+3. Resubmitted all 4 validation jobs (6562846-6562849)
+
+#### Resource Optimization
+
+Based on Job 6562381 resource usage analysis:
+- Memory: 15.1 GB / 48 GB used (31.5%) → Reduced to 20GB
+- Time: 27 min / 2h limit (22.7%) → Reduced to 1h
+- Optimized scripts submitted for better scheduler priority
+
+#### Validation
+
+**Jobs Submitted** (October 31, 2025, 16:20 AEDT):
+- Job 6562846: `orthrus_tuned_cadets_e3` (optimized: 20GB, 1h)
+- Job 6562847: `magic_phase1_cadets_e3` (optimized: 20GB, 1h)
+- Job 6562848: `magic_adaptive_cadets_e3` (optimized: 20GB, 1.5h)
+- Job 6562849: `kairos_phase1_cadets_e3` (optimized: 20GB, 1h)
+
+**Status**: All 4 jobs PENDING (Priority queue)
+
+#### Lessons Learned
+
+1. **Multi-file feature changes**: When adding new functionality, check ALL files that consume it
+   - Config validation is necessary but insufficient
+   - Runtime functions must be updated together
+   - Create checklist of affected files
+
+2. **Validation strategy**: Config validation ≠ runtime validation
+   - Config accepts the value (schema validation)
+   - Runtime must know how to process it (semantic validation)
+   - Test both layers
+
+3. **Code review**: Search codebase for function name usage
+   - `git grep "reduce_losses_to_score"` would have caught this
+   - Check all callers and implementations
+
+4. **Testing**: Integration tests should cover new threshold methods
+   - Unit test: Does function accept new method?
+   - Integration test: Does full pipeline work with new method?
+
+5. **Resource optimization**: Monitor actual usage vs requested
+   - Job 6562381 used 31% of requested memory
+   - Optimize subsequent submissions based on telemetry
+   - Better scheduler priority with accurate requests
+
+#### Related
+
+- **Bug #5**: Orthrus THRESHOLD_METHODS validation (commit 2f31601)
+- **Paper Reference**: ORTHRUS §4.4 (node-level threshold selection)
+- **Files Modified**: 
+  - Bug #5: `pidsmaker/config/config.py`
+  - Bug #11: `pidsmaker/detection/evaluation_methods/evaluation_utils.py`
+
+---
+
+## Job Resubmission After Bug #11 Fix
+
+### Date: October 31, 2025, 16:20 AEDT - Complete Bug #5 Fix
+
+**Commit**: c428fa9 (Fix Bug #11: Complete Bug #5 fix)
 - **6562381**: `orthrus_tuned_cadets_e3` - Validates Bug #5 fix still works (max_val_node_score threshold)
 - **6562382**: `magic_phase1_cadets_e3` - Tests Magic baseline with correct k=10
 - **6562383**: `magic_adaptive_cadets_e3` - Tests Magic adaptation with correct k=10
