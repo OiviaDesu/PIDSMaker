@@ -52,14 +52,14 @@ def extract_node_embeddings(model, graph_batch, device='cpu') -> torch.Tensor:
         return embeddings.cpu()
 
 
-def build_knn_index(embeddings: np.ndarray, k: int = 20, algorithm: str = 'ball_tree') -> NearestNeighbors:
+def build_knn_index(embeddings: np.ndarray, k: int = 10, algorithm: str = 'ball_tree') -> NearestNeighbors:
     """
     Build KNN index for outlier detection.
-    Paper: MAGIC §4.3 - KNN-based outlier detector
+    Paper: MAGIC §4.3 - KNN-based outlier detector with k=10 neighbors (Implementation)
     
     Args:
         embeddings: Node embeddings [num_nodes, embedding_dim]
-        k: Number of nearest neighbors (default: 20)
+        k: Number of nearest neighbors (default: 10 per MAGIC paper)
         algorithm: Algorithm for KNN ('ball_tree', 'kd_tree', 'brute')
     
     Returns:

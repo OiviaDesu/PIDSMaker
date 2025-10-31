@@ -120,12 +120,18 @@ Successfully implemented paper-faithful detection methods for **Orthrus**, **Kai
 | Model | Mode | TP Target | FP Target | Key Metric | Paper Reference |
 |-------|------|-----------|-----------|------------|-----------------|
 | **Orthrus** | Node-level | 8-12 | ≈0 | Precision > 50% | ORTHRUS Table 4 (ano: 10 TP/0 FP) |
-| **Kairos** | Queue-level | TBD | TBD | ≥1 anomalous queue | KAIROS §5.2 |
+| **Kairos** | Time-window-level | TP=4, FP=1 | FN=0 | Precision: 0.800, Recall: 1.000 | KAIROS §5.2, Table 4 (E3-CADETS) |
 | **Kairos** | Node-level* | ≈0 | - | For comparison | ORTHRUS Table 4 (0 TP) |
-| **Magic** | Baseline | 50-63 | 50K-80K | High recall | ORTHRUS Table 4 (63 TP/79,766 FP) |
-| **Magic** | Adaptive | 50-63 | 500-2500 | ≥30% FP reduction | MAGIC §6.3, Table 5 |
+| **Magic** | Baseline (k=10) | 50-63 | 50K-80K | High recall | ORTHRUS Table 4 (63 TP/79,766 FP) |
+| **Magic** | Adaptive (k=10) | 50-63 | Case-study-based | FP reduction varies | MAGIC §6.3 case studies |
 
 *Evaluation-only adaptation, not Kairos' native design
+
+**Note on Paper Misalignments (Fixed Oct 31, 2025):**
+- **Kairos metrics**: Paper reports time-window-level TP/FP/FN, not queue counts. Implementation correctly computes window-level metrics.
+- **Magic k parameter**: Corrected from k=20 to k=10 per MAGIC Implementation section.
+- **Magic FP reduction**: Paper demonstrates case-study-based improvements (e.g., E5-ClearScope: 2 FP → 0 FP), not universal "≥30%" target.
+- **Kairos α threshold**: Now configurable per paper §4.3.1 (tunable parameter, not fixed constant).
 
 ### Key Implementation Decisions
 
@@ -143,11 +149,12 @@ Successfully implemented paper-faithful detection methods for **Orthrus**, **Kai
 **Rationale:** Respects Kairos' native paradigm while enabling cross-model comparison.
 
 #### 3. Magic Adaptation Budget
-- **Feedback:** 15% of FPs per day (configurable)
-- **Fine-tuning:** 5 epochs, LR=1e-5 (small to avoid drift)
-- **Discounting:** FIFO when store exceeds 10K nodes
+- **Timing:** Per-day block-based adaptation (per MAGIC §6.3)
+- **Feedback:** Top 15% of FPs per block (implementation choice for budgeted sampling)
+- **Fine-tuning:** 5 epochs, LR=1e-5 (implementation choice, small to avoid drift)
+- **Discounting:** FIFO when store exceeds 10K nodes (implementation choice)
 
-**Rationale:** Balances realistic analyst budget with measurable FP reduction per paper §6.3.
+**Rationale:** Paper uses block/chunk-based adaptation timing (per day/per chunk). Within each block, "top X% FPs" budget controls sampling strategy. This aligns with paper's evaluation of adaptation in periodic blocks (§6.3), not continuous feedback.
 
 #### 4. Louvain Deferred to Phase 1b
 - **Decision:** Implement Kairos queue detection first, add Louvain later
@@ -251,7 +258,32 @@ With proper node-based thresholding (threshold ~0.5-1.0 instead of 12+):
 - **Recall: 80-100%** (from 0%)
 - **AUC: ~0.71-0.81** (maintained, model is good!)
 
-### All Bugs Fixed Summary (Total: 8)
+### All Bugs Fixed Summary (Total: 10)
+
+#### **Bug #9: Magic KNN k=20 Paper Misalignment** ✅ (Oct 31, 2025)
+- **Issue**: Implementation used k=20 neighbors but MAGIC paper Implementation states k=10
+- **Root Cause**: Incorrect paper citation - k was set to 20 in configs and code defaults
+- **Fix**: Updated k=20 → k=10 in:
+  - `config/magic_phase1.yml` line 86
+  - `config/magic_adaptive.yml` line 86
+  - `pidsmaker/detection/evaluation_methods/magic_detection.py` line 45
+  - `pidsmaker/detection/evaluation_methods/magic_adaptation.py` line 23
+- **Paper Reference**: MAGIC Implementation section explicitly states "the number of neighbors k is set to 10"
+- **Impact**: Affects Magic KNN outlier detection baseline and adaptive modes
+
+#### **Bug #10: Kairos IDF Threshold α Not Configurable** ✅ (Oct 31, 2025)
+- **Issue**: IDF threshold α hardcoded as 0.9, not exposed in config despite being tunable parameter
+- **Root Cause**: KAIROS §4.3.1 defines α as tunable parameter but doesn't specify fixed value
+- **Fix**: 
+  - Added `idf_threshold_percentile: 0.9` to `config/kairos_phase1.yml`
+  - Updated `extract_suspicious_nodes()` to accept parameter (already had default 0.9)
+  - Added parameter threading through pipeline: `process_kairos_queue_detection` → `build_time_window_data` → `extract_suspicious_nodes`
+  - Updated docstrings to clarify α should be calibrated on validation data
+- **Paper Guidance**: α (rareness threshold) should be derived from validation IDF distribution (e.g., percentile approach) rather than fixed constant
+- **Files Modified**:
+  - `config/kairos_phase1.yml` - exposed parameter
+  - `pidsmaker/detection/evaluation_methods/kairos_queue_detection.py` - parameter threading
+- **Impact**: Enables tuning of "high IDF" suspicious node filtering per paper §4.3.1
 
 #### **Bug #5: Orthrus Config Validation** ✅ (Commit 2f31601)
 - **Issue**: THRESHOLD_METHODS validation list missing node-based methods

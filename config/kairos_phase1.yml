@@ -93,12 +93,15 @@ detection:
     
     # PRIMARY: Queue-level detection (native Kairos)
     # Note: Kairos calculates β threshold automatically from validation queues (§4.3.3)
-    # Parameters like sigma_multiplier, neighborhood_size, etc. are hardcoded in the detection module
     queue_evaluation:
       queue_threshold: 20  # Unused (Kairos calculates β dynamically)
       used_method: kairos_idf_queue
       kairos_idf_queue:
         include_test_set_in_IDF: True
+        # IDF threshold α for "high IDF" suspicious nodes (KAIROS §4.3.1)
+        # Paper does not specify fixed α value; tunable parameter calibrated on validation
+        # Current: Use validation IDF distribution to derive α (e.g., percentile approach)
+        idf_threshold_percentile: 0.9  # α derived from 90th percentile (calibrate on validation)
     
     # SECONDARY: Node-level evaluation (for cross-model comparison)
     # Note: Node-level metrics are evaluation-only. Kairos native detection is queue-level.

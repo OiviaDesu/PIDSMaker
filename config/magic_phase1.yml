@@ -83,7 +83,7 @@ detection:
     node_evaluation:
       threshold_method: magic  # Magic's native threshold method (validation sweep)
       target_fpr: 0.01  # 1% FPR target per MAGIC §4.4
-      knn_k: 20  # k=20 neighbors per MAGIC §4.3
+      knn_k: 10  # k=10 neighbors per MAGIC §4.3 (Implementation states k=10)
       use_dst_node_loss: True
       use_kmeans: False
       enable_adaptation: False  # Baseline: no adaptation

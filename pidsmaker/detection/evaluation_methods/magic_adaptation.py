@@ -24,7 +24,7 @@ class MagicAdaptationManager:
         self,
         initial_knn_index: NearestNeighbors,
         initial_embeddings: np.ndarray,
-        knn_k: int = 20,
+        knn_k: int = 10,
         max_store_size: int = 10000,
         feedback_budget: float = 0.15,
         finetune_epochs: int = 5,
@@ -33,15 +33,16 @@ class MagicAdaptationManager:
     ):
         """
         Initialize adaptation manager.
+        Paper: MAGIC §6.3 uses block-based (per-day) adaptation timing.
         
         Args:
             initial_knn_index: Initial KNN index from validation
             initial_embeddings: Initial embeddings from validation
-            knn_k: Number of nearest neighbors
-            max_store_size: Maximum KNN store size (default: 10000)
-            feedback_budget: Fraction of FPs to collect feedback on (default: 0.15 = 15%)
-            finetune_epochs: Epochs for periodic fine-tuning (default: 5)
-            finetune_lr: Learning rate for fine-tuning (default: 1e-5)
+            knn_k: Number of nearest neighbors (k=10 per MAGIC Implementation)
+            max_store_size: Maximum KNN store size (implementation choice, paper uses discounting)
+            feedback_budget: Fraction of FPs to sample per block (implementation choice for budgeted review)
+            finetune_epochs: Epochs for periodic fine-tuning (implementation choice)
+            finetune_lr: Learning rate for fine-tuning (implementation choice)
             device: Device for training
         """
         self.knn_index = initial_knn_index
@@ -316,7 +317,7 @@ def process_magic_adaptive_detection(
     baseline_results: Dict,
     test_days_data: List[Dict],
     model: Optional[nn.Module] = None,
-    knn_k: int = 20,
+    knn_k: int = 10,
     max_store_size: int = 10000,
     feedback_budget: float = 0.15,
     finetune_epochs: int = 5,

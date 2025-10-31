@@ -128,17 +128,18 @@ def extract_suspicious_nodes(
     Extract suspicious nodes from a time window.
     A node is suspicious if:
       1. It appears in edges with RE > σT
-      2. It has high IDF (rare across dataset)
+      2. It has high IDF (rare across dataset) - IDF > α
       3. It's not filtered by keywords
     
-    Paper: KAIROS §4.3.1
+    Paper: KAIROS §4.3.1 - α (rareness threshold) is tunable, not fixed in paper.
+    α is calibrated on validation data (e.g., as percentile of validation IDF distribution).
     
     Args:
         edge_list: List of (src_label, dst_label, loss) tuples
         sigma_t: Window-specific threshold
         node_idf: IDF values for all nodes
         num_files: Total number of files in dataset
-        idf_threshold_percentile: Percentile of max IDF (default: 0.9)
+        idf_threshold_percentile: α parameter - percentile for "high IDF" (tunable, paper §4.3.1)
     
     Returns:
         Set of suspicious node labels
@@ -167,7 +168,8 @@ def build_time_window_data(
     window_csv_path: str,
     node_idf: Dict[str, float],
     num_files: int,
-    sigma_multiplier: float = 1.5
+    sigma_multiplier: float = 1.5,
+    idf_threshold_percentile: float = 0.9
 ) -> Dict:
     """
     Build time window data structure from CSV file.
@@ -211,7 +213,7 @@ def build_time_window_data(
         
         # Extract suspicious nodes
         suspicious_nodes = extract_suspicious_nodes(
-            edge_list, sigma_t, node_idf, num_files
+            edge_list, sigma_t, node_idf, num_files, idf_threshold_percentile
         )
         
         # Compute mean loss of high-RE edges
@@ -363,7 +365,8 @@ def process_kairos_queue_detection(
     time_window_size: float = 15.0,
     neighborhood_size: int = 20,
     sigma_multiplier: float = 1.5,
-    min_windows_per_queue: int = 2
+    min_windows_per_queue: int = 2,
+    idf_threshold_percentile: float = 0.9
 ) -> Dict:
     """
     Full Kairos queue detection pipeline.
@@ -373,10 +376,11 @@ def process_kairos_queue_detection(
         test_tw_path: Path to test time-window CSV files
         train_graph_files: List of training graph file paths (for IDF)
         test_graph_files: List of test graph file paths (for IDF)
-        time_window_size: Window size in minutes (default: 15 per paper)
-        neighborhood_size: Neighborhood size |N| (default: 20 per paper)
-        sigma_multiplier: Multiplier for σT (default: 1.5 per paper)
+        time_window_size: Window size in minutes (default: 15 per paper §4.3)
+        neighborhood_size: Neighborhood size |N| (default: 20 per paper §4.3)
+        sigma_multiplier: Multiplier for σT (default: 1.5 per paper §4.3.1)
         min_windows_per_queue: Minimum windows to form a queue (default: 2)
+        idf_threshold_percentile: α parameter for "high IDF" threshold (tunable per paper §4.3.1)
     
     Returns:
         Dictionary with detection results: beta, val_queues, test_queues, anomalous_indices
@@ -402,7 +406,7 @@ def process_kairos_queue_detection(
     val_windows = []
     for window_file in val_files:
         window_data = build_time_window_data(
-            window_file, combined_idf, combined_num_files, sigma_multiplier
+            window_file, combined_idf, combined_num_files, sigma_multiplier, idf_threshold_percentile
         )
         val_windows.append(window_data)
         log(f"  {window_data['name']}: σT={window_data['sigma_t']:.4f}, "
@@ -425,7 +429,7 @@ def process_kairos_queue_detection(
     test_windows = []
     for window_file in test_files:
         window_data = build_time_window_data(
-            window_file, combined_idf, combined_num_files, sigma_multiplier
+            window_file, combined_idf, combined_num_files, sigma_multiplier, idf_threshold_percentile
         )
         test_windows.append(window_data)
     
@@ -451,3 +455,30 @@ def process_kairos_queue_detection(
         "queue_scores": queue_scores,
         "test_windows": test_windows
     }
+
+
+# Wrapper function that accepts cfg object (for compatibility with queue_evaluation.py)
+def process_kairos_queue_detection_from_cfg(cfg):
+    """
+    Wrapper for process_kairos_queue_detection that extracts parameters from config object.
+    
+    Args:
+        cfg: Configuration object
+    
+    Returns:
+        Dictionary with detection results
+    """
+    # Extract idf_threshold_percentile from config (default 0.9 if not specified)
+    idf_threshold_percentile = 0.9  # Default value
+    if hasattr(cfg.detection.evaluation.queue_evaluation, 'kairos_idf_queue'):
+        kairos_config = cfg.detection.evaluation.queue_evaluation.kairos_idf_queue
+        if hasattr(kairos_config, 'idf_threshold_percentile'):
+            idf_threshold_percentile = kairos_config.idf_threshold_percentile
+            log(f"[Kairos Config] Using α (IDF threshold percentile): {idf_threshold_percentile}")
+    
+    # TODO: Extract other parameters and call process_kairos_queue_detection
+    # This wrapper needs to be implemented based on how cfg provides paths and graph files
+    raise NotImplementedError(
+        "process_kairos_queue_detection_from_cfg needs implementation. "
+        "Call process_kairos_queue_detection directly with extracted parameters."
+    )
