@@ -163,13 +163,16 @@ def test_node_level(
     # Magic codes
     elif cfg.detection.evaluation.node_evaluation.threshold_method == "magic":
         os.makedirs(cfg.detection.gnn_training._magic_dir, exist_ok=True)
+        
+        # Extract node embeddings h_n from encoder per MAGIC §4.2
+        x_embeddings, _, _ = model.embed(data, inference=True)
+        x_embeddings = x_embeddings.cpu().numpy()
+        
         if split == "val":
-            x_train, _, _ = model.embed(data, inference=True)
-            x_train = x_train.cpu().numpy()
-            num_nodes = x_train.shape[0]
+            num_nodes = x_embeddings.shape[0]
             sample_size = 5000 if num_nodes > 5000 else num_nodes
             sample_indices = np.random.choice(num_nodes, sample_size, replace=False)
-            x_train_sampled = x_train[sample_indices]
+            x_train_sampled = x_embeddings[sample_indices]
             x_train_mean = x_train_sampled.mean(axis=0)
             x_train_std = x_train_sampled.std(axis=0)
             x_train_sampled = (x_train_sampled - x_train_mean) / x_train_std
@@ -200,11 +203,15 @@ def test_node_level(
             with open(train_distance_file, "a") as f:
                 f.write(f"{mean_distance_train}\n")
 
+            # Save node embeddings to CSV per MAGIC §4.2-4.4 (for KNN outlier detection)
             for i, node in enumerate(n_id):
                 temp_dic = {
                     "node": node.item(),
                     "loss": float(loss[i].item()),
                 }
+                # Add embedding dimensions as emb_0, emb_1, ..., emb_d
+                for emb_dim in range(x_embeddings.shape[1]):
+                    temp_dic[f"emb_{emb_dim}"] = float(x_embeddings[i, emb_dim])
                 node_list.append(temp_dic)
 
         elif split == "test":
@@ -213,12 +220,10 @@ def test_node_level(
             )
             mean_distance_train = calculate_average_from_file(train_distance_file)
 
-            x_test, _, _ = model.embed(data, inference=True)
-            x_test = x_test.cpu().numpy()
-            num_nodes = x_test.shape[0]
+            num_nodes = x_embeddings.shape[0]
             sample_size = 5000 if num_nodes > 5000 else num_nodes
             sample_indices = np.random.choice(num_nodes, sample_size, replace=False)
-            x_test_sampled = x_test[sample_indices]
+            x_test_sampled = x_embeddings[sample_indices]
             x_test_mean = x_test_sampled.mean(axis=0)
             x_test_std = x_test_sampled.std(axis=0)
             x_test_sampled = (x_test_sampled - x_test_mean) / x_test_std
@@ -230,18 +235,22 @@ def test_node_level(
             nbrs = NearestNeighbors(n_neighbors=n_neighbors)
             nbrs.fit(x_test_sampled)
 
-            distances, _ = nbrs.kneighbors(x_test, n_neighbors=n_neighbors)
+            distances, _ = nbrs.kneighbors(x_embeddings, n_neighbors=n_neighbors)
             distances = distances.mean(axis=1)
             # distances = distances.to_numpy()
             score = distances / mean_distance_train
             score = score.tolist()
 
+            # Save node embeddings to CSV per MAGIC §4.2-4.4 (for KNN outlier detection)
             for i, node in enumerate(n_id):
                 temp_dic = {
                     "node": node.item(),
                     "magic_score": float(score[i]),
                     "loss": float(loss[i].item()),
                 }
+                # Add embedding dimensions as emb_0, emb_1, ..., emb_d
+                for emb_dim in range(x_embeddings.shape[1]):
+                    temp_dic[f"emb_{emb_dim}"] = float(x_embeddings[i, emb_dim])
                 node_list.append(temp_dic)
 
     else:

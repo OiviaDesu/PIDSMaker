@@ -281,26 +281,17 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
         build_knn_index, compute_knn_outlier_scores, sweep_validation_threshold
     )
     
-    log("\n=== MAGIC ADAPTIVE DETECTION: WARNING ===")
-    log("Magic Adaptive requires node embeddings which are not available in edge_losses CSV.")
-    log("Falling back to Magic Phase 1 KNN detection without adaptive capability.")
-    log("This is Bug #13 - embeddings need to be saved during inference for full Magic Adaptive.")
-    log("")
-    log("TODO CRITICAL: Implement paper-faithful Magic Adaptive per MAGIC §4.2:")
-    log("  1. Extract node embeddings h_n from masked GAT encoder during inference")
-    log("  2. Save embeddings alongside losses in edge_losses CSV files")
-    log("  3. Load embeddings here for KNN-based outlier detection")
-    log("  4. Current workaround (KNN on 1D losses) is fundamentally flawed - equivalent to sorting")
-    log("")
+    log("\n=== MAGIC ADAPTIVE DETECTION: Using real node embeddings ===")
+    log("Per MAGIC §4.2: Using node embeddings h_n from masked GAT encoder for KNN outlier detection")
     
     # Get ground truth
     ground_truth_nids, _ = get_ground_truth_nids(cfg)
     
-    # Load validation data from loss CSV (no embeddings available)
-    log(f"Loading validation node IDs from {val_tw_path}")
+    # Load validation data with embeddings from CSV
+    log(f"Loading validation node embeddings from {val_tw_path}")
     val_files = sorted([os.path.join(val_tw_path, f) for f in os.listdir(val_tw_path) if f.endswith('.csv')])
     val_node_ids = []
-    val_losses = []
+    val_embeddings_list = []
     for f in val_files:
         df = pd.read_csv(f)
         # Handle both 'node_id' and 'node' column names
@@ -308,15 +299,25 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
             val_node_ids.extend(df['node_id'].values.tolist())
         elif 'node' in df.columns:
             val_node_ids.extend(df['node'].values.tolist())
-        # Use losses as proxy for embeddings (1D "embedding")
-        val_losses.extend(df['loss'].values.tolist())
+        
+        # Extract embedding columns (emb_0, emb_1, ..., emb_d)
+        emb_cols = [col for col in df.columns if col.startswith('emb_')]
+        if len(emb_cols) == 0:
+            raise ValueError(
+                f"No embedding columns found in {f}. "
+                f"Expected columns like 'emb_0', 'emb_1', etc. "
+                f"Available columns: {df.columns.tolist()}. "
+                f"Ensure inference_loop.py saves embeddings for Magic method."
+            )
+        val_embeddings_list.append(df[emb_cols].values)
+    
+    # Concatenate embeddings from all time windows
+    val_embeddings = np.vstack(val_embeddings_list)
     
     # Build validation labels
     val_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in val_node_ids])
-    log(f"Validation: {len(val_node_ids)} nodes, {np.sum(val_labels)} malicious")
+    log(f"Validation: {len(val_node_ids)} nodes, {np.sum(val_labels)} malicious, embedding dim={val_embeddings.shape[1]}")
     
-    # Use losses as 1D embeddings for KNN (temporary workaround)
-    val_embeddings = np.array(val_losses).reshape(-1, 1)
     
     # Build KNN index and compute scores
     knn_k = cfg.detection.evaluation.node_evaluation.get("knn_k", 20)
@@ -336,17 +337,26 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
     
     test_files = sorted([os.path.join(test_tw_path, f) for f in os.listdir(test_tw_path) if f.endswith('.csv')])
     test_node_ids = []
-    test_losses = []
+    test_embeddings_list = []
     for f in test_files:
         df = pd.read_csv(f)
         if 'node_id' in df.columns:
             test_node_ids.extend(df['node_id'].values.tolist())
         elif 'node' in df.columns:
             test_node_ids.extend(df['node'].values.tolist())
-        test_losses.extend(df['loss'].values.tolist())
+        
+        # Extract embedding columns
+        emb_cols = [col for col in df.columns if col.startswith('emb_')]
+        if len(emb_cols) == 0:
+            raise ValueError(
+                f"No embedding columns found in {f}. "
+                f"Expected columns like 'emb_0', 'emb_1', etc. "
+                f"Ensure inference_loop.py saves embeddings for Magic method."
+            )
+        test_embeddings_list.append(df[emb_cols].values)
     
+    test_embeddings = np.vstack(test_embeddings_list)
     test_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in test_node_ids])
-    test_embeddings = np.array(test_losses).reshape(-1, 1)
     
     # Compute test scores using KNN
     test_scores = compute_knn_outlier_scores(test_embeddings, knn_index)
