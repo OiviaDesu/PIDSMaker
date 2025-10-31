@@ -151,6 +151,15 @@ detection:
       use_dst_node_loss: True
       use_kmeans: True
       kmeans_top_K: 30
+      # Magic-specific parameters (optional, only used when threshold_method=magic)
+      knn_k: 0  # Number of KNN neighbors (0 = disabled)
+      target_fpr: 0.01  # Target FPR for threshold selection
+      enable_adaptation: False  # Enable Magic's periodic adaptation
+      feedback_budget: 0.15  # Fraction of FPs for feedback (if adaptation enabled)
+      adaptation_frequency: per_day  # Adaptation cycle frequency
+      max_store_size: 10000  # Max benign nodes in KNN store
+      finetune_epochs: 5  # Fine-tuning epochs per adaptation cycle
+      finetune_lr: 0.00001  # Learning rate for fine-tuning
     node_tw_evaluation:
       threshold_method: max_val_loss
       use_dst_node_loss: True

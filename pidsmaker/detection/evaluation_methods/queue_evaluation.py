@@ -13,6 +13,9 @@ from pidsmaker.detection.evaluation_methods.evaluation_utils import (
     classifier_evaluation,
     compute_tw_labels,
 )
+from pidsmaker.detection.evaluation_methods.kairos_queue_detection import (
+    process_kairos_queue_detection,
+)
 from pidsmaker.utils.utils import (
     get_all_files_from_folders,
     listdir_sorted,
@@ -562,8 +565,15 @@ def main(cfg):
     method = cfg.detection.evaluation.queue_evaluation.used_method
 
     if method == "kairos_idf_queue":
-        create_queues_kairos(cfg)
-        predict_queues(cfg)
+        # Check if using Phase 1 paper-faithful implementation
+        if hasattr(cfg.detection.evaluation.queue_evaluation.kairos_idf_queue, 'include_test_set_in_IDF'):
+            # NEW: Phase 1 paper-faithful Kairos queue detection
+            log("[Queue-level] Using Kairos Phase 1 queue detection (paper-faithful)")
+            return process_kairos_queue_detection(cfg)
+        else:
+            # Original Kairos implementation
+            create_queues_kairos(cfg)
+            predict_queues(cfg)
     elif method == "provnet_lof_queue":
         create_queues_provnet(cfg)
         predict_queues(cfg)
