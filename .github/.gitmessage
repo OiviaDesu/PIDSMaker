@@ -1,0 +1,77 @@
+# [type]: [Brief summary of changes in imperative mood]
+# |<----  Preferably limit to 50 characters  ---->|
+
+# Explain WHY this change is being made (not HOW)
+# |<----   Try to limit each line to 72 characters   ---->|
+
+# --- COMMIT BODY (Optional but recommended) ---
+# Provide additional context about the change:
+# - What problem does this solve?
+# - Why is this the best approach?
+# - What are the trade-offs?
+
+# --- BUG FIXES (If applicable) ---
+# Bug #X: [Bug title]
+# Root Cause: [Why bug occurred]
+# Impact: [Metrics before → after]
+# Validation: Job ID [job number]
+
+# --- RELATED REFERENCES ---
+# - Issue #X
+# - Job ID: [job number]
+# - Paper citation: [Section X.Y]
+# - Related commits: [hash]
+
+# --- DOCUMENTATION UPDATES (REQUIRED for code changes) ---
+# Updated documentation:
+# - DEVELOPMENT_HISTORY.md: [what was added]
+# - PRELIMINARY_REPORT.md: [what was updated]
+# - presentationSlide.md: [if milestone]
+
+# --- TYPE OPTIONS ---
+# feat:     New feature
+# fix:      Bug fix
+# docs:     Documentation only changes
+# style:    Formatting, missing semicolons, etc (no code change)
+# refactor: Code restructuring (no functional change)
+# perf:     Performance improvement
+# test:     Adding or updating tests
+# build:    Changes to build system or dependencies
+# ci:       Changes to CI/CD configuration
+# chore:    Other changes (e.g., updating .gitignore)
+
+# --- EXAMPLES ---
+# fix: Fix Bug #5 - Add node-based threshold methods to validation list
+#
+# Orthrus was producing 0 TP despite AUC=0.81 because THRESHOLD_METHODS
+# validation list was missing node-based threshold methods. Added
+# max_val_node_score, mean_val_node_score, and percentile_val_node_score.
+#
+# Bug #5: Orthrus 0 TP despite good model quality
+# Root Cause: Config validation rejected valid threshold methods
+# Impact: 0% → 100% precision recovery (10 TP detected)
+# Validation: Job 6562381
+#
+# Updated documentation:
+# - DEVELOPMENT_HISTORY.md: Added Bug #5 with root cause analysis
+# - PRELIMINARY_REPORT.md: Updated Day 12 bug fix section
+
+# feat: Implement Kairos queue-level detection (510 lines)
+#
+# Implements paper-faithful Kairos detection per IEEE S&P'23 §4.3.
+# Uses time-window queuing with IDF-based suspicious node extraction
+# and overlapping window correlation for queue formation.
+#
+# Paper citation: KAIROS §4.3.1 (queue formation algorithm)
+# Related: Phase 1 implementation sprint
+#
+# Updated documentation:
+# - DEVELOPMENT_HISTORY.md: Added Phase 1 implementation details
+# - PRELIMINARY_REPORT.md: Added Day 11 implementation section
+
+# docs: Weekly progress update (Week 2, Oct 27-31)
+#
+# Updated documentation:
+# - DEVELOPMENT_HISTORY.md: Week 2 summary with storage crisis resolution
+# - PRELIMINARY_REPORT.md: Added Days 8-12, updated all metrics
+# - presentationSlide.md: Refreshed results and challenges slides
