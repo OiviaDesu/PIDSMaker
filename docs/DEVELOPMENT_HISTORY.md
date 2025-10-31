@@ -536,5 +536,32 @@ Job 6357922 successfully ran the full Orthrus pipeline but revealed two critical
 
 ---
 
+## Job Resubmission After Bug #9 & #10 Fixes
+
+### Date: October 31, 2025 - Paper Misalignment Corrections
+
+**Commit**: cc5b970 (Fix Bug #9 & #10: Paper misalignments)
+
+**Changes Applied**:
+1. Magic KNN k parameter: 20 → 10 (per MAGIC Implementation section)
+2. Kairos IDF threshold α: Now configurable in config (default 0.9, tunable per paper §4.3.1)
+3. Documentation: Updated expected results with accurate paper citations
+
+**Jobs Submitted**:
+- **6562381**: `orthrus_tuned_cadets_e3` - Validates Bug #5 fix still works (max_val_node_score threshold)
+- **6562382**: `magic_phase1_cadets_e3` - Tests Magic baseline with correct k=10
+- **6562383**: `magic_adaptive_cadets_e3` - Tests Magic adaptation with correct k=10
+- **6562384**: `kairos_phase1_cadets_e3` - Tests Kairos queue detection with configurable α=0.9
+
+**Expected Outcomes**:
+- **Orthrus**: 8-12 TP, 0 FP (validates node-level threshold still works after Magic changes)
+- **Magic Baseline**: 50-63 TP, 50K-80K FP (with k=10, may differ slightly from k=20 results)
+- **Magic Adaptive**: 50-63 TP, reduced FPs per block-based adaptation (case-study evaluation)
+- **Kairos**: TP=4, FP=1 time-window-level metrics (per KAIROS Table 4 for E3-CADETS)
+
+**Status**: ⏳ Jobs pending (Resources/Priority queue)
+
+---
+
 **Status**: ✅ All major bugs fixed, paper-faithful implementation complete
 **Date**: October 31, 2025
