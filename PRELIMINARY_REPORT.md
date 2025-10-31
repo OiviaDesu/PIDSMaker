@@ -328,16 +328,38 @@ du -sh ~/slurm-logs/*.tar.gz  # 50+ GB of archives
 - Job 6562384: `kairos_phase1_cadets_e3` (validates Bug #10: α configurable)
 
 **Status** (23:59):
-- Job 6562381: RUNNING (6:49 elapsed)
-- Jobs 6562382-6562384: PENDING
+- Job 6562381: FAILED (27 min, Bug #11 discovered)
+- Jobs 6562382-6562384: CANCELLED (partition down)
+
+**Bug #11 Discovery & Fix**:
+- Job 6562381 revealed Bug #5 fix was incomplete
+- `reduce_losses_to_score()` didn't handle node-based methods
+- Fixed in commit c428fa9
+- Optimized resource requests (48GB→20GB, 2h→1h)
+
+**Resubmission** (Oct 31, 16:20):
+- Job 6562846: `orthrus_tuned_cadets_e3` (optimized, Bug #11 fix)
+- Job 6562847: `magic_phase1_cadets_e3` (optimized)
+- Job 6562848: `magic_adaptive_cadets_e3` (optimized)
+- Job 6562849: `kairos_phase1_cadets_e3` (optimized)
+- Status: All PENDING (Priority queue)
 
 **Summary Statistics (Oct 31)**:
-- **Commits**: 13 commits in 24 hours
-- **Bugs fixed**: 8 bugs (Bug #3-#10)
+- **Commits**: 14 commits in 24 hours (including Bug #11 fix)
+- **Bugs fixed**: 11 bugs total (Bug #3-#11)
 - **Lines of code**: 1,760+ (Phase 1 implementation)
 - **Documentation**: 11,000+ lines (presentation, history, report)
-- **Jobs submitted**: 4 validation jobs
+- **Jobs submitted**: 8 jobs (4 cancelled, 4 resubmitted with optimizations)
 - **Time**: ~24 hours continuous work
+
+**Deliverables**:
+- ✅ 20-minute presentation (17 slides + 3 backup slides, 556 lines)
+- ✅ Development history (650+ lines documentation, updated with Bug #11)
+- ✅ Preliminary report (11,000+ words, this document)
+- ✅ Documentation policy (4 GitHub templates + contributing guide)
+- ✅ 11 bugs fixed and documented
+- ✅ Paper alignment corrections with citations
+- ✅ Resource-optimized job scripts
 
 ---
 
@@ -1039,6 +1061,7 @@ def load_node_scores(df):
 | #8 | Medium | CSV column mismatch | Expected src/dst, got srcnode/dstnode | Flexible column names | ✅ Fixed |
 | #9 | Medium | Magic k=20 (paper: k=10) | Parameter misalignment | Change k=20 → k=10 | ✅ Fixed |
 | #10 | Low | Kairos α hardcoded | Not configurable per paper | Expose in config | ✅ Fixed |
+| #11 | **HIGH** | **Bug #5 fix incomplete** | **reduce_losses_to_score() not updated** | **Add node-based methods** | ✅ Fixed |
 
 ### Appendix B: Job Statistics
 
