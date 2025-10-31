@@ -285,6 +285,13 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
     log("Magic Adaptive requires node embeddings which are not available in edge_losses CSV.")
     log("Falling back to Magic Phase 1 KNN detection without adaptive capability.")
     log("This is Bug #13 - embeddings need to be saved during inference for full Magic Adaptive.")
+    log("")
+    log("TODO CRITICAL: Implement paper-faithful Magic Adaptive per MAGIC §4.2:")
+    log("  1. Extract node embeddings h_n from masked GAT encoder during inference")
+    log("  2. Save embeddings alongside losses in edge_losses CSV files")
+    log("  3. Load embeddings here for KNN-based outlier detection")
+    log("  4. Current workaround (KNN on 1D losses) is fundamentally flawed - equivalent to sorting")
+    log("")
     
     # Get ground truth
     ground_truth_nids, _ = get_ground_truth_nids(cfg)
@@ -308,8 +315,6 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
     val_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in val_node_ids])
     log(f"Validation: {len(val_node_ids)} nodes, {np.sum(val_labels)} malicious")
     
-    # Use losses as 1D embeddings for KNN (temporary workaround)
-    val_embeddings = np.array(val_losses).reshape(-1, 1)
     # Use losses as 1D embeddings for KNN (temporary workaround)
     val_embeddings = np.array(val_losses).reshape(-1, 1)
     
@@ -522,8 +527,10 @@ def main(val_tw_path, test_tw_path, model_epoch_dir, cfg, tw_to_malicious_nodes,
         log(f"attack {att}: {tps}")
         tps_in_atts.append((att, tps))
 
+    # Per ORTHRUS §5.1: "An attack is detected if any node involved in the attack is flagged"
+    # Count attacks where at least one node was detected (attack_to_TPs > 0), not all nodes
     stats["percent_detected_attacks"] = (
-        round(len(attack_to_GPs) / len(attack_to_TPs), 2) if len(attack_to_TPs) > 0 else 0
+        round(len(attack_to_TPs) / len(attack_to_GPs), 2) if len(attack_to_GPs) > 0 else 0
     )
 
     fps, tps, precision, recall = get_metrics_if_all_attacks_detected(
