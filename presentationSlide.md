@@ -331,19 +331,19 @@ enable_adaptation: True/False  # Baseline vs Adaptive
 
 | **Model** | **Mode** | **TP** | **FP** | **FN** | **Precision** | **Recall** | **F-Score** | **AUC** |
 |-----------|----------|--------|--------|--------|---------------|-----------|-------------|---------|
-| **Orthrus** | Node-level | **10** | **0** | 50 | **100%** | 16.7% | 0.286 | 0.81 |
-| **Kairos** | Time-window | **4** | **1** | 0 | **80.0%** | **100%** | 0.889 | - |
-| **Kairos** | Node-level† | 0 | 42K | 60 | 0.08% | 0% | - | - |
-| **Magic** | Baseline (k=10) | **63** | 79,766 | 5 | 0.08% | **92.6%** | 0.002 | 0.75 |
-| **Magic** | Adaptive (k=10) | 63 | ~2,000‡ | 5 | **3.1%** | 92.6% | 0.060 | 0.75 |
+| **Orthrus** | Node-level | 0 | 10 | 68 | 0.0% | 0.0% | 0.0 | 0.825 |
+| **Kairos** | Queue-level | 1 queue | - | - | - | - | - | - |
+| **Kairos** | Node-level† | **5** | **1,397** | **0** | **0.357%** | **100%** | 0.007 | 0.537 |
+| **Magic** | Baseline (k=10) | 63 | 117,087 | 5 | 0.054% | 92.6% | 0.001 | 0.834 |
+| **Magic** | Adaptive (k=10) | TIMEOUT | - | - | - | - | - | - |
 
-† Node-level evaluation only (not Kairos' native design)  
-‡ Expected after adaptation (pending validation)
+† Node-level evaluation only (not Kairos' native design)
 
-### Insights
-- **Orthrus**: Highest precision (100%) but low recall → Conservative threshold
-- **Kairos**: Best balance at time-window level (F-score: 0.889)
-- **Magic**: Highest recall but needs adaptation to reduce FPs
+### Updated Insights (Nov 1, 2025)
+- **Orthrus**: Still 0 TP with p=77 threshold - needs more aggressive calibration
+- **Kairos**: 100% recall but 0.357% precision - threshold too permissive (β=754.96)
+- **Magic**: High recall maintained but catastrophic FP rate (92.6% FPR)
+- **Critical finding**: All models suffer from precision-recall trade-off failure
 
 ---
 
@@ -381,37 +381,48 @@ Threshold: 0.5-1.0 (node-based, correct)
 
 ### Cross-Model Performance Analysis
 
-**Precision vs. Recall Trade-off**
+**Precision vs. Recall Trade-off (CADETS_E3, Updated Nov 1, 2025)**
 ```
                     High Precision
                          ↑
-    Orthrus (100%, 16.7%)  |
-                           |
-    Kairos TW (80%, 100%)  |----------- Ideal Zone
-                           |
-    Magic Adaptive (3%, 93%)|
-                           |
-    Magic Baseline (0.08%, 93%)
-                           |
-                           └────────────────→
-                                    High Recall
+    Paper KAIROS (80%, 100%)  |----------- Ideal Zone (Paper)
+                              |
+    Paper ORTHRUS (100%, 17%) |
+                              |
+    Magic (0.054%, 92.6%)     |
+                              |
+    Kairos Node (0.357%, 100%)|---------- Our Results
+                              |
+    Orthrus (0%, 0%)          |
+                              |
+                              └────────────────→
+                                       High Recall
 ```
 
-### Key Observations
+### Key Observations (Critical Reality Check)
 
-**1. Native Detection Paradigm Matters**
-- Kairos designed for time-window detection → Best F-score (0.889)
-- Forcing node-level evaluation on Kairos → 42K FPs (0.08% precision)
+**1. Massive Precision-Recall Gap vs Paper**
+- **Paper Kairos**: 80% precision, 100% recall (4 TP windows, 1 FP window)
+- **Our Kairos**: 0.357% precision, 100% recall (5 TP nodes, 1,397 FP nodes)
+- **Gap**: **224× worse precision** despite matching recall
 
-**2. Adaptation Effectiveness**
-- Magic baseline: 79,766 FPs
-- Magic adaptive: ~2,000 FPs (97.5% reduction expected)
-- **Block-based feedback** aligns with paper §6.3
+**2. Root Cause: Granularity & Threshold Mismatch**
+- Paper reports **time-window-level** metrics (TP/FP = windows)
+- We report **node-level** metrics (TP/FP = nodes)
+- Each flagged window contains **hundreds of nodes** → inflates FP count
+- β threshold (754.96) from only 3 validation queues → insufficient calibration
 
-**3. Implementation Bugs Have Major Impact**
-- Bug #5 caused 100% → 0% detection rate
-- Bug #9 (k=20 vs k=10) affects reproducibility
-- **Lesson**: Paper-faithful validation is critical
+**3. Missing Post-Processing Pipeline**
+Our implementation lacks:
+- Time-window aggregation (cluster nodes → windows before counting)
+- Provenance graph scoring (score attack paths, not individual nodes)
+- Alert deduplication (merge temporal proximity alerts)
+- **Result**: Raw model output without SOC-ready filtering
+
+**4. Operational Impact**
+- 1,397 FP nodes at 30s/alert = **11.6 hours analyst time** to find 5 attacks
+- Paper's 1 FP window = **minutes of investigation** (realistic SOC workload)
+- **Conclusion**: We detect perfectly (100% recall) but present unusably
 
 ---
 
