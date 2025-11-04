@@ -170,12 +170,26 @@ def test_node_level(
         
         if split == "val":
             num_nodes = x_embeddings.shape[0]
+            if num_nodes == 0:
+                raise ValueError(
+                    "Magic validation split produced zero node embeddings. "
+                    "Ensure graphs contain nodes before running inference."
+                )
+
             sample_size = 5000 if num_nodes > 5000 else num_nodes
             sample_indices = np.random.choice(num_nodes, sample_size, replace=False)
             x_train_sampled = x_embeddings[sample_indices]
+            if x_train_sampled.size == 0:
+                raise ValueError(
+                    "Magic validation sampling yielded no embeddings. "
+                    "Check data loader and graph construction."
+                )
+
             x_train_mean = x_train_sampled.mean(axis=0)
             x_train_std = x_train_sampled.std(axis=0)
+            x_train_std = np.where(x_train_std == 0, 1e-6, x_train_std)
             x_train_sampled = (x_train_sampled - x_train_mean) / x_train_std
+            x_train_sampled = np.nan_to_num(x_train_sampled, nan=0.0, posinf=0.0, neginf=0.0)
 
             x_train_sampled = pd.DataFrame.from_records(x_train_sampled)
 
@@ -219,14 +233,33 @@ def test_node_level(
                 cfg.detection.gnn_training._magic_dir, "train_distance.txt"
             )
             mean_distance_train = calculate_average_from_file(train_distance_file)
+            if mean_distance_train is None or mean_distance_train <= 0:
+                raise ValueError(
+                    "Magic test split requires a positive mean distance from validation. "
+                    "Ensure validation inference completed before test."
+                )
 
             num_nodes = x_embeddings.shape[0]
+            if num_nodes == 0:
+                raise ValueError(
+                    "Magic test split produced zero node embeddings. "
+                    "Ensure inference_loop processed graphs correctly."
+                )
+
             sample_size = 5000 if num_nodes > 5000 else num_nodes
             sample_indices = np.random.choice(num_nodes, sample_size, replace=False)
             x_test_sampled = x_embeddings[sample_indices]
+            if x_test_sampled.size == 0:
+                raise ValueError(
+                    "Magic test sampling yielded no embeddings. "
+                    "Check data loader and graph construction."
+                )
+
             x_test_mean = x_test_sampled.mean(axis=0)
             x_test_std = x_test_sampled.std(axis=0)
+            x_test_std = np.where(x_test_std == 0, 1e-6, x_test_std)
             x_test_sampled = (x_test_sampled - x_test_mean) / x_test_std
+            x_test_sampled = np.nan_to_num(x_test_sampled, nan=0.0, posinf=0.0, neginf=0.0)
 
             torch.cuda.empty_cache()
             x_test_sampled = pd.DataFrame.from_records(x_test_sampled)

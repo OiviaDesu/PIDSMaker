@@ -292,12 +292,13 @@ def process_magic_knn_detection(
         log(f"{'='*60}\n")
         
         return {
-            "theta": theta,
-            "percentile": result["percentile"],
-            "val_fpr": result["val_fpr"],
+            "theta": float(theta),
+            "percentile": float(result["percentile"]),
+            "val_fpr": float(result["val_fpr"]),
             "predictions": predictions,
             "test_scores": test_scores,
-            "val_scores": val_scores
+            "val_scores": val_scores,
+            "knn_index_summary": None,
         }
     
     # Step 2: Build KNN index on validation
@@ -330,13 +331,20 @@ def process_magic_knn_detection(
     log(f"{'='*60}\n")
     
     return {
-        "theta": theta,
-        "percentile": result["percentile"],
-        "val_fpr": result["val_fpr"],
+        "theta": float(theta),
+        "percentile": float(result["percentile"]),
+        "val_fpr": float(result["val_fpr"]),
         "predictions": predictions,
         "test_scores": test_scores,
         "val_scores": val_scores,
-        "knn_index": knn_index
+        # Store lightweight metadata only; the fitted index itself is not JSON-serializable
+        "knn_index_summary": {
+            "algorithm": getattr(knn_index, "_fit_method", "unknown"),
+            "n_neighbors": int(getattr(knn_index, "n_neighbors", knn_k)),
+            "n_samples": int(getattr(knn_index, "_fit_X", np.empty((0,))).shape[0])
+            if hasattr(knn_index, "_fit_X")
+            else 0,
+        },
     }
 
 

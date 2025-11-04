@@ -40,6 +40,64 @@ from pidsmaker.utils.utils import (
 )
 
 
+def _build_malicious_node_checker(cfg):
+    """Create a helper that checks whether a node id belongs to the malicious set.
+
+    Handles node identifiers stored as ints, numpy integer types, strings, or floats
+    (with .0). This ensures consistency between inference CSV exports and ground
+    truth identifiers, which may differ in dtype depending on pandas heuristics.
+    """
+
+    ground_truth_nids_raw, _ = get_ground_truth_nids(cfg)
+
+    malicious_ints = set()
+    malicious_tokens = set()
+
+    def _to_int_if_integral(value):
+        if isinstance(value, (int, np.integer)):
+            return int(value)
+
+        if isinstance(value, float):
+            if np.isnan(value) or not value.is_integer():
+                return None
+            return int(value)
+
+        try:
+            converted = int(value)
+            return converted
+        except (ValueError, TypeError):
+            pass
+
+        try:
+            converted_float = float(value)
+        except (ValueError, TypeError):
+            return None
+
+        if np.isnan(converted_float) or not converted_float.is_integer():
+            return None
+
+        return int(converted_float)
+
+    for nid in ground_truth_nids_raw:
+        malicious_tokens.add(str(nid))
+
+        maybe_int = _to_int_if_integral(nid)
+        if maybe_int is not None:
+            malicious_ints.add(maybe_int)
+
+    def is_malicious(node_id) -> bool:
+        if node_id in malicious_ints:
+            return True
+
+        maybe_int = _to_int_if_integral(node_id)
+        if maybe_int is not None and maybe_int in malicious_ints:
+            return True
+
+        return str(node_id) in malicious_tokens
+
+    return is_malicious, malicious_ints, malicious_tokens
+
+
 def get_node_predictions(val_tw_path, test_tw_path, cfg, **kwargs):
     ground_truth_nids, ground_truth_paths = get_ground_truth_nids(cfg)
     log(f"Loading data from {test_tw_path}...")
@@ -284,8 +342,8 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
     log("\n=== MAGIC ADAPTIVE DETECTION: Using real node embeddings ===")
     log("Per MAGIC §4.2: Using node embeddings h_n from masked GAT encoder for KNN outlier detection")
     
-    # Get ground truth
-    ground_truth_nids, _ = get_ground_truth_nids(cfg)
+    # Get ground truth lookup helper
+    is_malicious_node, _, malicious_tokens = _build_malicious_node_checker(cfg)
     
     # Load validation data with embeddings from CSV
     log(f"Loading validation node embeddings from {val_tw_path}")
@@ -310,13 +368,36 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
                 f"Ensure inference_loop.py saves embeddings for Magic method."
             )
         val_embeddings_list.append(df[emb_cols].values)
-    
+
+    if not val_embeddings_list:
+        raise ValueError(
+            f"No validation embeddings found under {val_tw_path}. "
+            "Ensure inference_loop.py exported emb_* columns for Magic."
+        )
+
     # Concatenate embeddings from all time windows
     val_embeddings = np.vstack(val_embeddings_list)
-    
+    if val_embeddings.size == 0:
+        raise ValueError(
+            "Validation embeddings array is empty. Check preprocessing for Magic pipeline."
+        )
+    if len(val_node_ids) != val_embeddings.shape[0]:
+        raise ValueError(
+            "Mismatch between validation node IDs and embedding rows: "
+            f"{len(val_node_ids)} ids vs {val_embeddings.shape[0]} embeddings."
+        )
+
     # Build validation labels
-    val_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in val_node_ids])
-    log(f"Validation: {len(val_node_ids)} nodes, {np.sum(val_labels)} malicious, embedding dim={val_embeddings.shape[1]}")
+    val_labels = np.array([1 if is_malicious_node(nid) else 0 for nid in val_node_ids])
+    log(
+        "Validation: %d nodes, %d malicious (unique GT tokens=%d) embedding dim=%d"
+        % (
+            len(val_node_ids),
+            int(np.sum(val_labels)),
+            len(malicious_tokens),
+            val_embeddings.shape[1],
+        )
+    )
     
     
     # Build KNN index and compute scores
@@ -355,8 +436,24 @@ def run_magic_adaptive_wrapper(val_tw_path: str, test_tw_path: str, cfg, **kwarg
             )
         test_embeddings_list.append(df[emb_cols].values)
     
+    if not test_embeddings_list:
+        raise ValueError(
+            f"No test embeddings found under {test_tw_path}. "
+            "Ensure inference_loop.py exported emb_* columns for Magic."
+        )
+
     test_embeddings = np.vstack(test_embeddings_list)
-    test_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in test_node_ids])
+    if test_embeddings.size == 0:
+        raise ValueError(
+            "Test embeddings array is empty. Check preprocessing for Magic pipeline."
+        )
+    if len(test_node_ids) != test_embeddings.shape[0]:
+        raise ValueError(
+            "Mismatch between test node IDs and embedding rows: "
+            f"{len(test_node_ids)} ids vs {test_embeddings.shape[0]} embeddings."
+        )
+
+    test_labels = np.array([1 if is_malicious_node(nid) else 0 for nid in test_node_ids])
     
     # Compute test scores using KNN
     test_scores = compute_knn_outlier_scores(test_embeddings, knn_index)
@@ -395,8 +492,8 @@ def main(val_tw_path, test_tw_path, model_epoch_dir, cfg, tw_to_malicious_nodes,
             if cfg.detection.evaluation.node_evaluation.get("knn_k", 0) > 0:
                 log("[Node-based] Routing to Magic Phase 1 KNN detection")
                 
-                # Get ground truth malicious nodes
-                ground_truth_nids, _ = get_ground_truth_nids(cfg)
+                # Build ground truth membership helper for node IDs
+                is_malicious_node, _, malicious_tokens = _build_malicious_node_checker(cfg)
                 
                 # Load node_ids from CSV to build label arrays (handle both 'node_id' and 'node' columns)
                 log(f"Loading validation node IDs from {val_tw_path}")
@@ -420,11 +517,17 @@ def main(val_tw_path, test_tw_path, model_epoch_dir, cfg, tw_to_malicious_nodes,
                         test_node_ids.extend(df['node'].values.tolist())
                 
                 # Build label arrays: 1 if node_id is in ground_truth_nids, 0 otherwise
-                val_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in val_node_ids])
-                test_labels = np.array([1 if nid in ground_truth_nids else 0 for nid in test_node_ids])
-                
-                log(f"Validation: {len(val_node_ids)} nodes, {np.sum(val_labels)} malicious")
-                log(f"Test: {len(test_node_ids)} nodes, {np.sum(test_labels)} malicious")
+                val_labels = np.array([1 if is_malicious_node(nid) else 0 for nid in val_node_ids])
+                test_labels = np.array([1 if is_malicious_node(nid) else 0 for nid in test_node_ids])
+
+                log(
+                    "Validation: %d nodes, %d malicious (unique GT tokens=%d)"
+                    % (len(val_node_ids), int(np.sum(val_labels)), len(malicious_tokens))
+                )
+                log(
+                    "Test: %d nodes, %d malicious (unique GT tokens=%d)"
+                    % (len(test_node_ids), int(np.sum(test_labels)), len(malicious_tokens))
+                )
                 
                 # Extract Magic parameters from config
                 knn_k = cfg.detection.evaluation.node_evaluation.get("knn_k", 20)

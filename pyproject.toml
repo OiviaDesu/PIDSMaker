@@ -9,6 +9,9 @@ description = "Intrusion detection framework based on deep learning"
 authors = [{name="mlx-graphs contributors"}]
 readme = "README.md"
 requires-python = ">= 3.9"
+dependencies = [
+    "wandb>=0.17,<0.20",
+]
 
 [tool.setuptools]
 packages = ["pidsmaker"]

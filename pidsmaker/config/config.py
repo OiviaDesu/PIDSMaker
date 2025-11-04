@@ -857,6 +857,10 @@ TASK_ARGS = {
                 "queue_threshold": Arg(int),
                 "kairos_idf_queue": {
                     "include_test_set_in_IDF": Arg(bool),
+                    "idf_threshold_percentile": Arg(
+                        float,
+                        desc="Percentile threshold applied to IDF scores when ranking queue alerts.",
+                    ),
                 },
                 "provnet_lof_queue": {
                     "queue_arg": Arg(str),

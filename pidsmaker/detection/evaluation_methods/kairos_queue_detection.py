@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple
-from pidsmaker.utils.utils import log, mean, std, listdir_sorted
+from pidsmaker.utils.utils import get_all_files_from_folders, log, mean, std, listdir_sorted
 import os
 
 
@@ -404,10 +404,12 @@ def process_kairos_queue_detection(
     log("\n[Step 2/5] Building validation time-window queues...")
     val_files = sorted([os.path.join(val_tw_path, f) for f in listdir_sorted(val_tw_path)])
     val_windows = []
-    for window_file in val_files:
+    for idx, window_file in enumerate(val_files):
         window_data = build_time_window_data(
             window_file, combined_idf, combined_num_files, sigma_multiplier, idf_threshold_percentile
         )
+        window_data["index"] = idx
+        window_data["path"] = window_file
         val_windows.append(window_data)
         log(f"  {window_data['name']}: σT={window_data['sigma_t']:.4f}, "
             f"suspicious_nodes={len(window_data['suspicious_nodes'])}, "
@@ -427,10 +429,12 @@ def process_kairos_queue_detection(
     log("\n[Step 4/5] Building test time-window queues...")
     test_files = sorted([os.path.join(test_tw_path, f) for f in listdir_sorted(test_tw_path)])
     test_windows = []
-    for window_file in test_files:
+    for idx, window_file in enumerate(test_files):
         window_data = build_time_window_data(
             window_file, combined_idf, combined_num_files, sigma_multiplier, idf_threshold_percentile
         )
+        window_data["index"] = idx
+        window_data["path"] = window_file
         test_windows.append(window_data)
     
     test_queues = form_queues_by_overlap(test_windows)
@@ -468,17 +472,73 @@ def process_kairos_queue_detection_from_cfg(cfg):
     Returns:
         Dictionary with detection results
     """
-    # Extract idf_threshold_percentile from config (default 0.9 if not specified)
-    idf_threshold_percentile = 0.9  # Default value
-    if hasattr(cfg.detection.evaluation.queue_evaluation, 'kairos_idf_queue'):
-        kairos_config = cfg.detection.evaluation.queue_evaluation.kairos_idf_queue
-        if hasattr(kairos_config, 'idf_threshold_percentile'):
-            idf_threshold_percentile = kairos_config.idf_threshold_percentile
-            log(f"[Kairos Config] Using α (IDF threshold percentile): {idf_threshold_percentile}")
-    
-    # TODO: Extract other parameters and call process_kairos_queue_detection
-    # This wrapper needs to be implemented based on how cfg provides paths and graph files
-    raise NotImplementedError(
-        "process_kairos_queue_detection_from_cfg needs implementation. "
-        "Call process_kairos_queue_detection directly with extracted parameters."
+    kairos_cfg = getattr(
+        cfg.detection.evaluation.queue_evaluation, "kairos_idf_queue", None
     )
+
+    idf_threshold_percentile = getattr(kairos_cfg, "idf_threshold_percentile", 0.9)
+    if kairos_cfg and hasattr(kairos_cfg, "idf_threshold_percentile"):
+        log(
+            f"[Kairos Config] Using α (IDF threshold percentile): {idf_threshold_percentile}"
+        )
+
+    sigma_multiplier = getattr(kairos_cfg, "sigma_multiplier", 1.5)
+    min_windows_per_queue = getattr(kairos_cfg, "min_windows_per_queue", 2)
+
+    # Optional overrides (defaults fall back to pipeline configuration values if present)
+    time_window_size = getattr(cfg.preprocessing.build_graphs, "time_window_size", 15.0)
+    intra_batch_cfg = getattr(cfg.detection.graph_preprocessing, "intra_graph_batching", None)
+    tgn_cfg = getattr(intra_batch_cfg, "tgn_last_neighbor", None) if intra_batch_cfg else None
+    neighborhood_size = getattr(tgn_cfg, "tgn_neighbor_size", 20)
+
+    base_graph_dir = cfg.preprocessing.transformation._graphs_dir
+    train_graph_files = get_all_files_from_folders(base_graph_dir, cfg.dataset.train_files)
+    test_graph_files = get_all_files_from_folders(base_graph_dir, cfg.dataset.test_files)
+
+    val_tw_root = os.path.join(cfg.detection.gnn_training._edge_losses_dir, "val")
+    test_tw_root = os.path.join(cfg.detection.gnn_training._edge_losses_dir, "test")
+
+    results_by_epoch = {}
+
+    if not os.path.isdir(test_tw_root):
+        log(
+            f"[Kairos Config] Test edge losses directory not found: {test_tw_root}. Skipping Kairos queue detection."
+        )
+        return results_by_epoch
+
+    model_epoch_dirs = listdir_sorted(test_tw_root)
+    if len(model_epoch_dirs) == 0:
+        log("[Kairos Config] No model epochs found for queue evaluation.")
+        return results_by_epoch
+
+    for model_epoch_dir in model_epoch_dirs:
+        val_tw_path = os.path.join(val_tw_root, model_epoch_dir)
+        test_tw_path = os.path.join(test_tw_root, model_epoch_dir)
+
+        if not os.path.isdir(test_tw_path):
+            log(
+                f"[Kairos Queue] Skipping epoch {model_epoch_dir}: missing test TW path {test_tw_path}"
+            )
+            continue
+        if not os.path.isdir(val_tw_path):
+            log(
+                f"[Kairos Queue] Skipping epoch {model_epoch_dir}: missing val TW path {val_tw_path}"
+            )
+            continue
+
+        log(f"[Kairos Queue] Processing epoch {model_epoch_dir}")
+        results = process_kairos_queue_detection(
+            val_tw_path=val_tw_path,
+            test_tw_path=test_tw_path,
+            train_graph_files=train_graph_files,
+            test_graph_files=test_graph_files,
+            time_window_size=time_window_size,
+            neighborhood_size=neighborhood_size,
+            sigma_multiplier=sigma_multiplier,
+            min_windows_per_queue=min_windows_per_queue,
+            idf_threshold_percentile=idf_threshold_percentile,
+        )
+
+        results_by_epoch[model_epoch_dir] = results
+
+    return results_by_epoch

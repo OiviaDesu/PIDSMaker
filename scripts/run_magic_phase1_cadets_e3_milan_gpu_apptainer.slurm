@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=48GB
 #SBATCH --gres=gpu:1
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --output=/fred/oz411/dunguyen/slurm-logs/magic_phase1_cadets_e3_milan_gpu_%j.out
 #SBATCH --error=/fred/oz411/dunguyen/slurm-logs/magic_phase1_cadets_e3_milan_gpu_%j.err
 

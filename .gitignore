@@ -163,7 +163,7 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-
+# Project-specific ignores
 **/.DS_Store
 **/archieved
 
@@ -173,3 +173,19 @@ nohup.out
 artifacts/
 data/
 docs/site/
+
+# Environment files
+.env
+.env.local
+
+# Test and temporary files
+test_*.sh
+*.backup
+*.tmp
+*.log
+
+# Egg info
+*.egg-info/
+
+# Pytest cache
+.pytest_cache/

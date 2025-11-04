@@ -25,6 +25,7 @@ from sklearn.metrics import (
 
 import pidsmaker.utils.labelling as labelling
 from pidsmaker.utils.utils import (
+    US_EASTERN_TZ,
     get_all_files_from_folders,
     get_node_to_path_and_type,
     listdir_sorted,
@@ -1248,7 +1249,7 @@ def datetime_to_ns_time_US_handle_nano(nano_date_str):
     date = nano_date_str.split(".")[0]
     nanos = nano_date_str.split(".")[1]
 
-    tz = pytz.timezone("US/Eastern")
+    tz = US_EASTERN_TZ
     timeArray = time.strptime(date, "%Y-%m-%d %H:%M:%S")
     dt = datetime.fromtimestamp(mktime(timeArray))
     timestamp = tz.localize(dt)

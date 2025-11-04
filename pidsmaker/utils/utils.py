@@ -5,6 +5,7 @@ import random
 import re
 import shutil
 import time
+import warnings
 from collections import defaultdict
 from datetime import datetime
 from time import mktime
@@ -16,6 +17,18 @@ import pytz
 import torch
 from tqdm import tqdm
 from typing import List
+
+try:
+    US_EASTERN_TZ = pytz.timezone("US/Eastern")
+except pytz.UnknownTimeZoneError:
+    try:
+        US_EASTERN_TZ = pytz.timezone("America/New_York")
+    except pytz.UnknownTimeZoneError:
+        US_EASTERN_TZ = pytz.utc
+        warnings.warn(
+            "Falling back to UTC because the US/Eastern timezone data is unavailable.",
+            RuntimeWarning,
+        )
 
 # Avoid network calls for NLTK data on HPC. Provide a robust offline fallback tokenizer.
 try:
@@ -67,8 +80,8 @@ def ns_time_to_datetime_US(ns):
     :param ns: int nano timestamp
     :return: datetime   format: 2013-10-10 23:40:00.000000000
     """
-    tz = pytz.timezone("US/Eastern")
-    dt = pytz.datetime.datetime.fromtimestamp(int(ns) // 1000000000, tz)
+    tz = US_EASTERN_TZ
+    dt = datetime.fromtimestamp(int(ns) // 1000000000, tz)
     s = dt.strftime("%Y-%m-%d %H:%M:%S")
     s += "." + str(int(int(ns) % 1000000000)).zfill(9)
     return s
@@ -79,8 +92,8 @@ def time_to_datetime_US(s):
     :param ns: int nano timestamp
     :return: datetime   format: 2013-10-10 23:40:00
     """
-    tz = pytz.timezone("US/Eastern")
-    dt = pytz.datetime.datetime.fromtimestamp(int(s), tz)
+    tz = US_EASTERN_TZ
+    dt = datetime.fromtimestamp(int(s), tz)
     s = dt.strftime("%Y-%m-%d %H:%M:%S")
 
     return s
@@ -102,7 +115,7 @@ def datetime_to_ns_time_US(date):
     :param date: str   format: %Y-%m-%d %H:%M:%S   e.g. 2013-10-10 23:40:00
     :return: nano timestamp
     """
-    tz = pytz.timezone("US/Eastern")
+    tz = US_EASTERN_TZ
     timeArray = time.strptime(date, "%Y-%m-%d %H:%M:%S")
     dt = datetime.fromtimestamp(mktime(timeArray))
     timestamp = tz.localize(dt)
@@ -116,7 +129,7 @@ def datetime_to_timestamp_US(date):
     :param date: str   format: %Y-%m-%d %H:%M:%S   e.g. 2013-10-10 23:40:00
     :return: nano timestamp
     """
-    tz = pytz.timezone("US/Eastern")
+    tz = US_EASTERN_TZ
     timeArray = time.strptime(date, "%Y-%m-%d %H:%M:%S")
     dt = datetime.fromtimestamp(mktime(timeArray))
     timestamp = tz.localize(dt)

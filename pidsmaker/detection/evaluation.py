@@ -13,6 +13,7 @@ from pidsmaker.detection.evaluation_methods.evaluation_utils import (
     compute_tw_labels,
     listdir_sorted,
 )
+from pidsmaker.utils.wandb_logging import sanitize_stats_for_wandb
 from pidsmaker.utils.utils import log
 
 
@@ -77,7 +78,7 @@ def standard_evaluation(cfg, evaluation_fn):
             if os.path.exists(discrim):
                 stats["discrim_img"] = wandb.Image(discrim)
 
-        wandb.log(stats)
+        wandb.log(sanitize_stats_for_wandb(stats))
 
         best_metrics = best_metric_pick_best_epoch(stats, best_metrics, cfg)
 

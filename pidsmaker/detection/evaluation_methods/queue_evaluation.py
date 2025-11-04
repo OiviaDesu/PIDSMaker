@@ -15,6 +15,7 @@ from pidsmaker.detection.evaluation_methods.evaluation_utils import (
 )
 from pidsmaker.detection.evaluation_methods.kairos_queue_detection import (
     process_kairos_queue_detection,
+    process_kairos_queue_detection_from_cfg,
 )
 from pidsmaker.utils.utils import (
     get_all_files_from_folders,
@@ -567,6 +568,110 @@ def predict_queues(cfg):
     wandb.log(best_stats)
 
 
+def evaluate_kairos_phase_one(cfg, results_by_epoch):
+    if not results_by_epoch:
+        log("[Kairos Queue] No results generated during Phase 1 queue detection.")
+        return results_by_epoch
+
+    test_losses_dir = os.path.join(cfg.detection.gnn_training._edge_losses_dir, "test")
+    if not os.path.isdir(test_losses_dir):
+        log(
+            f"[Kairos Queue] Test edge losses directory missing ({test_losses_dir}); cannot compute metrics."
+        )
+        return results_by_epoch
+
+    os.makedirs(cfg.detection.evaluation.queue_evaluation._predicted_queues_dir, exist_ok=True)
+    os.makedirs(cfg.detection.evaluation.queue_evaluation._kairos_dir, exist_ok=True)
+
+    best_precision, best_stats = 0.0, None
+
+    for model_epoch_dir in listdir_sorted(test_losses_dir):
+        result = results_by_epoch.get(model_epoch_dir)
+        if result is None:
+            log(
+                f"[Kairos Queue] No detection results for epoch {model_epoch_dir}; skipping metric computation."
+            )
+            continue
+
+        test_tw_path = os.path.join(test_losses_dir, model_epoch_dir)
+        labels = ground_truth_label(test_tw_path, cfg)
+        num_windows = len(labels)
+
+        test_windows = result.get("test_windows", [])
+        window_name_to_index = {w.get("name"): w.get("index") for w in test_windows}
+
+        pred_label = [0] * num_windows
+        detected_queues = []
+
+        test_queues = result.get("test_queues", [])
+        anomalous_indices = result.get("anomalous_indices", [])
+
+        for queue_idx in anomalous_indices:
+            if queue_idx >= len(test_queues):
+                log(
+                    f"[Kairos Queue] Queue index {queue_idx} out of range for epoch {model_epoch_dir}."
+                )
+                continue
+
+            queue = test_queues[queue_idx]
+            queue_window_indices = set()
+
+            for window in queue:
+                idx = window.get("index")
+                if idx is None and "name" in window:
+                    idx = window_name_to_index.get(window["name"])
+                if idx is None:
+                    try:
+                        idx = test_windows.index(window)
+                    except ValueError:
+                        idx = None
+                if idx is None or idx >= num_windows or idx < 0:
+                    continue
+                pred_label[idx] = 1
+                queue_window_indices.add(idx)
+
+            detected_queues.append(sorted(queue_window_indices))
+
+        stats = classifier_evaluation(labels, pred_label, pred_label)
+        stats["epoch"] = int(re.findall(r"[+-]?\d*\.?\d+", model_epoch_dir)[0])
+        stats["kairos_beta"] = float(result.get("beta", 0.0))
+
+        queue_scores = result.get("queue_scores", [])
+        stats["kairos_queue_score_max"] = float(max(queue_scores)) if queue_scores else 0.0
+        stats["kairos_queue_score_mean"] = (
+            float(mean(queue_scores)) if queue_scores else 0.0
+        )
+        stats["kairos_anomalous_queue_count"] = len(anomalous_indices)
+
+        wandb.log(stats)
+
+        if stats["precision"] > best_precision:
+            best_precision = stats["precision"]
+            best_stats = stats
+        elif str(stats["precision"]) == "nan":
+            best_precision = 0
+            best_stats = stats
+
+        torch.save(
+            detected_queues,
+            os.path.join(
+                cfg.detection.evaluation.queue_evaluation._predicted_queues_dir,
+                f"{model_epoch_dir}_predicted_queues.pkl",
+            ),
+        )
+
+        epoch_artifact_dir = os.path.join(
+            cfg.detection.evaluation.queue_evaluation._kairos_dir, model_epoch_dir
+        )
+        os.makedirs(epoch_artifact_dir, exist_ok=True)
+        torch.save(result, os.path.join(epoch_artifact_dir, "results.pt"))
+
+    if best_stats is not None:
+        wandb.log(best_stats)
+
+    return results_by_epoch
+
+
 def main(cfg):
     method = cfg.detection.evaluation.queue_evaluation.used_method
 
@@ -575,7 +680,8 @@ def main(cfg):
         if hasattr(cfg.detection.evaluation.queue_evaluation.kairos_idf_queue, 'include_test_set_in_IDF'):
             # NEW: Phase 1 paper-faithful Kairos queue detection
             log("[Queue-level] Using Kairos Phase 1 queue detection (paper-faithful)")
-            return process_kairos_queue_detection(cfg)
+            results_by_epoch = process_kairos_queue_detection_from_cfg(cfg)
+            return evaluate_kairos_phase_one(cfg, results_by_epoch)
         else:
             # Original Kairos implementation
             create_queues_kairos(cfg)
