@@ -6,6 +6,29 @@ This document tracks all significant job submissions, their status, and outcomes
 
 ## Phase 1 Overnight Run - Final Submission
 
+## Phase 1 Follow-Up – November 1, 2025
+
+**Summary**: Verified fresh GPU submissions after timezone/W&B fixes.
+
+### CADETS_E3 GPU Jobs
+- ✅ **6568860** – `run_kairos_phase1_cadets_e3_milan_gpu_apptainer.slurm`
+	- Completed in 1h 09m (time limit 2h).
+	- Logs: `/fred/oz411/dunguyen/slurm-logs/kairos_phase1_cadets_e3_milan_gpu_6568860.*`
+- ⚠️ **6568861** – `run_magic_phase1_cadets_e3_milan_gpu_apptainer.slurm`
+	- Timed out at 2h while processing epoch 7 KNN evaluation (no runtime errors).
+	- Resolution: increase walltime to 4h in script (done 2025-11-01).
+	- Logs: `/fred/oz411/dunguyen/slurm-logs/magic_phase1_cadets_e3_milan_gpu_6568861.*`
+- ⏳ **6568863** – `run_magic_adaptive_cadets_e3_milan_gpu_apptainer.slurm`
+	- Running (epoch 1 adaptive evaluation in progress at 01h30m elapsed).
+	- Logs: `/fred/oz411/dunguyen/slurm-logs/magic_adaptive_cadets_e3_milan_gpu_6568863.*`
+
+### Actions Taken
+- Applied repo patches for W&B-safe logging (Magic Phase 1 & Adaptive).
+- Extended Magic Phase 1 GPU walltime to 4h to cover all evaluation epochs.
+- Resubmitted Magic Phase 1 job with updated time limit: **6569346** (pending).
+
+---
+
 **Date**: October 31, 2025 @ 01:07 AEDT  
 **Total**: 23 jobs (10 CPU running + 13 GPU pending)
 

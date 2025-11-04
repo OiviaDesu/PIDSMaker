@@ -1417,6 +1417,136 @@ See `docs/optimization_rationale.md` for:
 
 ---
 
+## Phase 1 Testing Results (Nov 1, 2025)
+
+### Kairos Phase 1 - CADETS_E3 (Job 6568860)
+
+**Date**: November 1, 2025  
+**Job ID**: 6568860  
+**Runtime**: 1h 09m 40s  
+**Node**: milan-gpu partition  
+**Status**: ✅ COMPLETED
+
+#### Configuration
+- Config: `kairos_phase1.yml`
+- Dataset: CADETS_E3
+- Detection mode: Queue-level (primary)
+- Threshold method: `max_val_queue_score`
+- β selection: From validation queue scores
+
+#### Performance Breakdown
+- **Build graphs**: 219s (~3.7 min)
+- **GNN training**: 2,839s (~47 min, 11 epochs)
+- **Feature inference**: 204s (~3.4 min)
+- **Evaluation**: 875s (~14.6 min)
+- **Total**: 4,140s (1h 09m)
+
+#### Memory Usage
+- **Training**: GPU 2.44 GB, CPU 1.01 GB
+- **Inference peak**: GPU 22.85 GB, CPU 0.74 GB
+
+#### Detection Metrics (Queue-Level)
+- **β threshold**: 754.96 (from validation)
+- **Validation queues**: 3 formed
+- **Test queues**: 2 formed
+- **Anomalous queues flagged**: 1 of 2
+- **Queue score range**: [max: 1673.40, mean: 813.81]
+
+#### Detection Metrics (Node-Level, for comparison)
+- **TP / FP / TN / FN**: 5 / 1,397 / 112 / 0
+- **Precision**: 0.00357 (0.357%)
+- **Recall**: 1.00 (100%)
+- **F1-score**: 0.00711
+- **FPR**: 0.92578 (92.6%)
+- **Accuracy**: 0.07728
+- **Balanced accuracy**: 0.53711
+- **AUC**: 0.53711
+- **MCC**: 0.01627
+- **AP**: 0.00357
+
+#### Analysis
+
+**What worked:**
+- ✅ **Perfect recall (100%)**: Detected all 5 true malicious nodes in test set
+- ✅ **Stable training**: 11 epochs completed without errors
+- ✅ **Queue formation successful**: 3 validation + 2 test queues formed
+- ✅ **One anomalous queue detected**: System flagged 1 of 2 test queues as anomalous
+
+**Critical issues:**
+- ❌ **Catastrophic precision (0.357%)**: 99.6% of alerts are false positives
+- ❌ **Excessive FPR (92.6%)**: Flags 1,397 benign nodes out of 1,509 total benign
+- ❌ **Near-random balanced accuracy (53.7%)**: Barely better than coin flip
+- ❌ **β threshold too permissive**: Threshold of 754.96 allows anomalous queue at score 1673.40 but also flags too many benign nodes
+
+**Comparison with paper (KAIROS IEEE S&P 2020, Table 4):**
+
+| Metric | Paper (CADETS_E3) | Our Result | Gap |
+|--------|-------------------|------------|-----|
+| **TP (time-window level)** | 4 | 1 queue (contains 5 nodes) | Different granularity |
+| **FP (time-window level)** | 1 | 1,397 nodes flagged | 1,397× worse |
+| **Precision** | 0.800 (80%) | 0.00357 (0.357%) | **224× worse** |
+| **Recall** | 1.000 (100%) | 1.00 (100%) | ✅ Match |
+| **FN** | 0 | 0 | ✅ Match |
+
+**Root cause analysis:**
+1. **Threshold calibration failure**: β=754.96 selected from only 3 validation queues spanning scores 2.20–761.74. Test queue with attack scored 1673.40 (2.2× higher than validation max), suggesting validation set doesn't capture full benign score distribution.
+
+2. **Metric granularity mismatch**: Paper reports time-window-level metrics (4 TP windows, 1 FP window), while we report node-level metrics (5 TP nodes, 1,397 FP nodes). This explains the massive numerical gap—each flagged window may contain hundreds of nodes.
+
+3. **Missing post-processing**: Paper likely includes:
+   - Time-window aggregation (group nodes by window before counting FPs)
+   - Provenance graph analysis (score entire attack paths, not individual nodes)
+   - Alert deduplication (merge related alerts within time proximity)
+
+**Why recall is perfect but precision is catastrophic:**
+- The model correctly identifies all malicious activity (100% recall = no blind spots)
+- But the threshold is so permissive that it also flags 92.6% of normal activity
+- This is like a fire alarm that detects all fires (good!) but also triggers for cooking, steam, candles, etc. (unusable in practice)
+
+**Operational impact:**
+At 30 seconds per alert investigation, processing 1,397 false positives would require:
+- **11.6 hours of continuous analyst time** to find 5 real attacks
+- Or **1.5 working days** at normal pace
+- This workload is unacceptable for production SOC deployment
+
+#### Recommendations
+
+**Immediate (fix threshold calibration):**
+1. **Increase validation coverage**: Use more validation time windows or days to capture wider benign score distribution
+2. **Try stricter percentiles**: Test p=99, 99.5, 99.9 instead of max validation score
+3. **Per-time-window thresholding**: Normalize β locally per window instead of global threshold
+4. **Queue-score normalization**: Apply log-scaling or z-score normalization before β selection
+
+**Short-term (improve precision):**
+1. **Implement time-window aggregation**: Report metrics at window level (matching paper) instead of node level
+2. **Add provenance scoring**: Score entire attack subgraphs instead of individual nodes
+3. **Temporal clustering**: Group alerts within 15-minute windows before counting FPs
+4. **Top-K per window**: Select only K highest-scoring nodes per window instead of threshold-based
+
+**Long-term (production readiness):**
+1. **Sync W&B run** (`wandb sync /opt/PIDSMaker/wandb/offline-run-20251031_234835-fxpac1qk`) for detailed analysis
+2. **Compare against Magic baseline** once job completes to determine if architecture or threshold is primary bottleneck
+3. **Ensemble approaches**: Combine Kairos queue detection with Magic KNN for consensus-based alerts
+4. **Human-in-the-loop**: Design alert prioritization UI to surface highest-confidence detections first
+
+#### Artifact Locations
+- **Logs**: `/fred/oz411/dunguyen/slurm-logs/kairos_phase1_cadets_e3_milan_gpu_6568860.*`
+- **Artifacts**: `/fred/oz411/dunguyen/tmp/pidsmaker_6568860/artifacts/`
+- **W&B offline run**: `/opt/PIDSMaker/wandb/offline-run-20251031_234835-fxpac1qk`
+
+#### Status Summary
+| Aspect | Status | Notes |
+|--------|--------|-------|
+| Infrastructure | ✅ Pass | Pipeline runs end-to-end, no crashes |
+| Model learning | ✅ Pass | Stable training, queue formation works |
+| Recall | ✅ Pass | 100% detection, no blind spots |
+| Precision | ❌ **Critical failure** | 0.357% precision, 92.6% FPR, unusable in production |
+| Paper reproduction | ❌ Fail | 224× worse precision than paper's 80% |
+
+**Verdict**: Kairos Phase 1 demonstrates the model **can learn** (stable training, queue formation) and **catch everything** (100% recall), but **cannot discriminate** effectively (0.357% precision). This is the same threshold calibration failure observed in previous Orthrus/Magic experiments, confirming it's a systematic issue across all architectures.
+
+---
+
 ## Tuned Model Results (Oct 23, 2025)
 
 After implementing percentile-based thresholds and optimizing hyperparameters, all six tuned jobs completed successfully.
